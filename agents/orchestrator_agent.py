@@ -1,17 +1,19 @@
 import json
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from agents.state import AgentState
 from config import get_settings
+from agents.utils import get_llm
 
 class ActionAgent:
     def __init__(self):
         settings = get_settings()
-        self.llm = ChatGoogleGenerativeAI(google_api_key=settings.GOOGLE_API_KEY, model="gemini-2.5-pro")
+        self.llm = get_llm()
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are the Action/Orchestrator Agent.
 Based on the conversation and state, decide the final mood and display instructions for the device.
-Output MUST be valid JSON with keys: reply_text, mood, icons, priority.
+Output MUST be valid JSON with keys: reply_text, mood, priority.
+
+**REPLY_TEXT RULE**: You MUST strictly preserve the input 'Text' as the 'reply_text' in your JSON output. Do not rewrite, shorten, or change it.
 
 Available Moods: happy, thirsty, neutral, concerned, sunny
 Priority: low, medium, high
@@ -36,15 +38,13 @@ Sensor Analysis: {sensor_analysis}
             data = json.loads(content)
         except:
             data = {
-                "reply_text": state["conversation_response"],
+                "reply_text": state.get("conversation_response", ""),
                 "mood": "neutral",
-                "icons": [],
                 "priority": "low"
             }
             
         return {
-            "reply_text": data.get("reply_text", state["conversation_response"]),
+            "reply_text": data.get("reply_text", state.get("conversation_response", "")),
             "mood": data.get("mood", "neutral"),
-            "icons": data.get("icons", []),
             "priority": data.get("priority", "low")
         }

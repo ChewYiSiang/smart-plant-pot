@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query
@@ -117,6 +117,7 @@ async def ingest_data(
     print("DEBUG: Invoking Agent Graph...")
     try:
         final_output = graph.invoke(initial_state)
+        print(f"DEBUG: Intent Tag: {final_output.get('intent_tag', 'None')}")
         print(f"DEBUG: Graph Output Reply: {final_output.get('reply_text', 'No Reply')[:50]}...")
     except Exception as e:
         print(f"DEBUG: Graph Failed: {e}")
@@ -124,7 +125,7 @@ async def ingest_data(
     
     # 5. Generate Response TTS
     settings = get_settings()
-    output_audio_name = f"response_{int(datetime.utcnow().timestamp())}.wav"
+    output_audio_name = f"response_{int(datetime.now(UTC).timestamp())}.wav"
     output_audio_path = os.path.join(settings.STORAGE_PATH, device_id, "responses", output_audio_name)
     
     tts = SpeechSynthesisService()
@@ -152,7 +153,6 @@ async def ingest_data(
         "audio_url": f"/v1/audio/{convo.id}", # Endpoint to serve the file
         "display": {
             "mood": final_output["mood"],
-            "icons": final_output["icons"],
             "priority": final_output["priority"]
         }
     }

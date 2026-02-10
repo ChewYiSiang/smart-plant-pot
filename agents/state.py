@@ -17,6 +17,5 @@ class AgentState(TypedDict):
     # Final Output
     reply_text: str
     mood: str
-    icons: List[str]
     priority: str
     audio_path: Optional[str]

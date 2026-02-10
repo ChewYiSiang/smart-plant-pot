@@ -1,12 +1,12 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from agents.state import AgentState
 from config import get_settings
+from agents.utils import get_llm
 
 class RouterAgent:
     def __init__(self):
         settings = get_settings()
-        self.llm = ChatGoogleGenerativeAI(google_api_key=settings.GOOGLE_API_KEY, model="gemini-2.5-pro")
+        self.llm = get_llm()
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are the Intent Router for a Smart Plant Pot.
 Your job is to categorize the user's query into one of the following tags:
