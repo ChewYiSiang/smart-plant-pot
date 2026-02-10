@@ -1,0 +1,220 @@
+:root {
+    --bg-color: #f0f7f4;
+    --card-bg: rgba(255, 255, 255, 0.8);
+    --primary-green: #4caf50;
+    --dark-green: #2e7d32;
+    --text-color: #264653;
+    --shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+    --accent: #2a9d8f;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Outfit', sans-serif;
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    color: var(--text-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.app-container {
+    width: 100%;
+    max-width: 450px;
+    background: var(--card-bg);
+    backdrop-filter: blur(10px);
+    border-radius: 30px;
+    padding: 2rem;
+    box-shadow: var(--shadow);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    text-align: center;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+    color: var(--dark-green);
+}
+
+.subtitle {
+    font-size: 0.9rem;
+    opacity: 0.7;
+    margin-bottom: 2rem;
+}
+
+.plant-card {
+    position: relative;
+    padding: 2rem 0;
+}
+
+.plant-avatar {
+    width: 150px;
+    height: 150px;
+    margin: 0 auto;
+    position: relative;
+}
+
+.pot {
+    width: 80px;
+    height: 70px;
+    background: #a1887f;
+    border-radius: 5px 5px 30px 30px;
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    box-shadow: inset 0 -10px 10px rgba(0,0,0,0.1);
+}
+
+.leaf-left, .leaf-right {
+    width: 60px;
+    height: 60px;
+    background: var(--primary-green);
+    border-radius: 60px 0;
+    position: absolute;
+    bottom: 60px;
+    transform-origin: bottom center;
+    transition: transform 0.3s ease;
+}
+
+.leaf-left {
+    left: 20px;
+    transform: rotate(-15deg);
+}
+
+.leaf-right {
+    right: 20px;
+    transform: rotate(105deg);
+    border-radius: 0 60px;
+}
+
+.face {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.eyes {
+    display: flex;
+    gap: 15px;
+}
+
+.eye {
+    width: 8px;
+    height: 8px;
+    background: #333;
+    border-radius: 50%;
+}
+
+.mouth {
+    width: 15px;
+    height: 8px;
+    border-bottom: 2px solid #333;
+    border-radius: 0 0 10px 10px;
+    margin: 5px auto 0;
+}
+
+.status-badge {
+    margin-top: 1.5rem;
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background: var(--accent);
+    color: white;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.controls {
+    margin-top: 2rem;
+}
+
+.btn {
+    padding: 1rem 2rem;
+    border-radius: 50px;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    font-weight: 600;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+}
+
+.btn.primary {
+    background: var(--primary-green);
+    color: white;
+    box-shadow: 0 10px 20px rgba(76, 175, 80, 0.3);
+}
+
+.btn.primary:active {
+    transform: scale(0.95);
+}
+
+.btn.recording {
+    background: #e63946;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.4); }
+    70% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(230, 57, 70, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(230, 57, 70, 0); }
+}
+
+.sensor-inputs {
+    margin-top: 1.5rem;
+    text-align: left;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.input-group label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+input[type=range] {
+    accent-color: var(--primary-green);
+}
+
+.transcript-section {
+    margin-top: 2rem;
+    text-align: left;
+}
+
+.chat-bubble {
+    background: white;
+    padding: 1rem;
+    border-radius: 15px 15px 15px 0;
+    font-style: italic;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+    position: relative;
+    border: 1px solid #eee;
+}
+
+footer {
+    margin-top: 2rem;
+    font-size: 0.7rem;
+    opacity: 0.5;
+}
+
+.mood-thirsty .pot { background: #d7ccc8; }
+.mood-thirsty .leaf-left, .mood-thirsty .leaf-right { transform: rotate(0) scale(0.9); opacity: 0.7; }
+.face-talking .mouth { animation: speak 0.2s infinite; }
+
+@keyframes speak {
+    0%, 100% { height: 2px; }
+    50% { height: 10px; }
+}

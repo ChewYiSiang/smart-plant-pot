@@ -1,21 +1,39 @@
 import os
-import whisper
-import torch
-from ..config import get_settings
+from google.cloud import speech
+from google.api_core.client_options import ClientOptions
+from config import get_settings
 
 class TranscriptionService:
     def __init__(self):
         self.settings = get_settings()
-        # Use "base" or "tiny" for lower resource usage on local machines
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = whisper.load_model("base", device=self.device)
+        # Initializing with API Key via ClientOptions
+        options = ClientOptions(api_key=self.settings.GOOGLE_API_KEY)
+        self.client = speech.SpeechClient(client_options=options)
 
     async def transcribe(self, audio_file_path: str) -> str:
-        """Transcribes audio file to text using local Whisper model."""
+        """Transcribes audio file to text using Google Cloud Speech-to-Text."""
         if not os.path.exists(audio_file_path):
             return ""
             
-        # whisper.transcribe is a synchronous call, in a high-traffic app 
-        # you might want to run this in a threadpool
-        result = self.model.transcribe(audio_file_path)
-        return result["text"].strip()
+        with open(audio_file_path, "rb") as audio_file:
+            content = audio_file.read()
+
+        audio = speech.RecognitionAudio(content=content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=16000, # Matches hardware
+            language_code="en-US",
+            model="chirp", # Use the powerful Chirp model (Vertex AI) if available, otherwise "default"
+        )
+
+        try:
+            response = self.client.recognize(config=config, audio=audio)
+            
+            transcript = ""
+            for result in response.results:
+                transcript += result.alternatives[0].transcript
+                
+            return transcript.strip()
+        except Exception as e:
+            print(f"STT Error: {e}")
+            return ""

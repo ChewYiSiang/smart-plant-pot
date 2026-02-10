@@ -24,6 +24,9 @@ A voice-enabled IoT backend for an ESP32-powered smart plant pot. Powered by Fas
    ```bash
    cp .env.example .env
    ```
+   
+   **Key Descriptions:**
+   - `GOOGLE_API_KEY`: Powers both the multi-agent system (LLM) and the speech synthesis (TTS) integration via Google Gemini.
 
 3. **Database Initialization**
    The database (SQLite by default) will be automatically created on the first run.
@@ -49,6 +52,16 @@ To test the STT and TTS services in isolation:
 ```bash
 python tests/test_services.py
 ```
+
+## What to Test
+
+To ensure the hardware and backend are integrated correctly, verify the following:
+
+1. **API Connectivity**: Run the simulation script to confirm the server is reachable and responding with `status: healthy`.
+2. **"Hey Plant" Wake Word**: Verify that sending the `event: wake_word` trigger results in the backend acknowledging the activation and processing the subsequent audio.
+3. **Sensor Analysis**: Check if the AI correctly interprets temperature, moisture, and light values (e.g., detecting if the plant is "thirsty").
+4. **I2S Audio Output**: Ensure the generated audio response is a standard WAV (PCM 16-bit Mono, 16kHz) compatible with the **MAX98357** amplifier.
+5. **Conversation Tracking**: Confirm that recordings and AI responses are correctly stored in `audio_artifacts/` and logged in the database.
 
 ## Project Structure
 - `agents/`: LangGraph orchestration and individual AI agents.

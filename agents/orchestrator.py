@@ -1,9 +1,9 @@
 from langgraph.graph import StateGraph, END
-from .state import AgentState
-from .sensor_agent import SensorAgent
-from .knowledge_agent import KnowledgeAgent
-from .conversation_agent import ConversationAgent
-from .orchestrator_agent import ActionAgent
+from agents.state import AgentState
+from agents.sensor_agent import SensorAgent
+from agents.knowledge_agent import KnowledgeAgent
+from agents.conversation_agent import ConversationAgent
+from agents.orchestrator_agent import ActionAgent
 
 def create_pot_graph():
     # Initialize agents

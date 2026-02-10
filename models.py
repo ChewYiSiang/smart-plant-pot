@@ -35,7 +35,7 @@ class Conversation(SQLModel, table=True):
     device: Device = Relationship(back_populates="conversations")
 
 # Database engine helper
-from .config import get_settings
+from config import get_settings
 
 def get_engine():
     settings = get_settings()

@@ -3,7 +3,6 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # API Keys
-    OPENAI_API_KEY: str = "your_openai_api_key_here"
     GOOGLE_API_KEY: str = "your_google_api_key_here"
     
     # Database
@@ -12,10 +11,13 @@ class Settings(BaseSettings):
     # Storage
     STORAGE_PATH: str = "./audio_artifacts"
     
-    # Device Security
-    DEVICE_API_KEY: str = "generate_a_secure_key_here"
+    # Hardware/Audio Configuration
+    AUDIO_SAMPLE_RATE: int = 16000  # Optimized for ESP32 I2S
+    AUDIO_CHANNELS: int = 1          # Mono
+    AUDIO_BIT_DEPTH: int = 16       # 16-bit PCM
+    WAKE_WORD: str = "hey plant"
     
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra='ignore')
 
 @lru_cache
 def get_settings():

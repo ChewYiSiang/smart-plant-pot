@@ -1,13 +1,13 @@
 import json
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from .state import AgentState
-from ..config import get_settings
+from agents.state import AgentState
+from config import get_settings
 
 class ActionAgent:
     def __init__(self):
         settings = get_settings()
-        self.llm = ChatOpenAI(api_key=settings.OPENAI_API_KEY, model="gpt-4o-mini")
+        self.llm = ChatGoogleGenerativeAI(google_api_key=settings.GOOGLE_API_KEY, model="gemini-2.5-pro")
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are the Action/Orchestrator Agent.
 Based on the conversation and state, decide the final mood and display instructions for the device.

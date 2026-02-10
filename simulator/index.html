@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Plant Pot Simulator</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>Plant Pot Simulator</h1>
+            <p class="subtitle">Interact with your digital flora</p>
+        </header>
+
+        <main>
+            <div class="plant-card">
+                <div class="plant-avatar" id="plant-avatar">
+                   <div class="leaf-left"></div>
+                   <div class="leaf-right"></div>
+                   <div class="pot">
+                       <div class="face" id="plant-face">
+                           <div class="eyes">
+                               <div class="eye"></div>
+                               <div class="eye"></div>
+                           </div>
+                           <div class="mouth"></div>
+                       </div>
+                   </div>
+                </div>
+                
+                <div class="status-badge" id="app-status">Ready</div>
+            </div>
+
+            <div class="controls">
+                <button id="record-btn" class="btn primary">
+                    <span class="icon">🎙️</span>
+                    <span class="label">Simulate "Hey Plant"</span>
+                </button>
+                <div class="sensor-inputs">
+                    <div class="input-group">
+                        <label>Moisture</label>
+                        <input type="range" id="moisture" min="0" max="100" value="35">
+                        <span id="moisture-val">35%</span>
+                    </div>
+                </div>
+            </div>
+
+            <section class="transcript-section">
+                <h3>Plant Response</h3>
+                <div class="chat-bubble" id="plant-reply">
+                    "I'm waiting to hear from you!"
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <div class="debug-info">
+                <span>Device ID: pot_simulator_001</span>
+                <span>Mode: I2S Simulation (16kHz)</span>
+            </div>
+        </footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 import os
 import aiofiles
 from fastapi import UploadFile
-from .config import get_settings
+from config import get_settings
 
 class StorageService:
     def __init__(self):

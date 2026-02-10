@@ -2,7 +2,6 @@ fastapi
 uvicorn[standard]
 langchain
 langgraph
-langchain-openai
 langchain-google-genai
 sqlmodel
 python-multipart
@@ -11,5 +10,6 @@ aiofiles
 pydantic-settings
 sqlalchemy
 psycopg2-binary
-openai-whisper
-torch
+google-cloud-speech
+google-cloud-texttospeech
+google-genai
