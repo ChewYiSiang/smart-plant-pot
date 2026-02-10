@@ -31,7 +31,7 @@ Instructions:
    - **IDENTITY**: Ignore sensor data. Focus on history and soul.
    - **HEALTH**: Translate sensor data into sensations. End with a specific expert tip.
    - **KNOWLEDGE**: Weave the expert facts into your witty narrative.
-3. TONE: Warm, witty, and concise.
+3. BREVITY: MAX 1-2 SENTENCES total. Must be punchy, witty, and soulful. Absolutely no lectures or long explanations.
             """),
             ("human", "Express your soul to your human.")
         ])
@@ -41,7 +41,7 @@ Instructions:
         response = chain.invoke({
             "species": state["species"],
             "user_query": state.get("user_query", "No specific query"),
-            "sensor_analysis": state["sensor_analysis"],
-            "plant_knowledge": state["plant_knowledge"]
+            "sensor_analysis": state.get("sensor_analysis", "No sensor data available."),
+            "plant_knowledge": state.get("plant_knowledge", "No specific botanical knowledge retrieved.")
         })
         return {"conversation_response": response.content}

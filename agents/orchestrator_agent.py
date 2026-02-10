@@ -26,8 +26,8 @@ Sensor Analysis: {sensor_analysis}
     def run(self, state: AgentState):
         chain = self.prompt | self.llm
         response = chain.invoke({
-            "conversation_response": state["conversation_response"],
-            "sensor_analysis": state["sensor_analysis"]
+            "conversation_response": state.get("conversation_response", "No response generated"),
+            "sensor_analysis": state.get("sensor_analysis", "No sensor analysis available")
         })
         
         try:

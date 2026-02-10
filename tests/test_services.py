@@ -30,6 +30,7 @@ class TestServices(IsolatedAsyncioTestCase):
         print("Testing Speech Synthesis...")
         result_path = await tts.synthesize("Hello, I am your plant.", output_audio)
         print(f"TTS saved to: {result_path}")
+        self.assertIsNotNone(result_path)
         self.assertTrue(os.path.exists(result_path))
         
         # Cleanup

@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from typing import Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
@@ -54,10 +54,12 @@ async def ingest_data(
     temperature: float,
     moisture: float,
     light: float,
+    user_query: Optional[str] = Query(None),
     event: Optional[str] = None,
     audio: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session)
 ):
+    print(f"DEBUG: Received Ingest - Device: {device_id}, Text: {user_query}, Audio: {audio.filename if audio else 'None'}")
     # 1. Ensure device exists
     device = session.get(Device, device_id)
     if not device:
@@ -75,15 +77,20 @@ async def ingest_data(
     )
     session.add(reading)
     
-    # 3. Handle Audio -> STT
-    user_query = None
-    if audio:
+    # 3. Handle Audio -> STT (if user_query not already provided via text)
+    if not user_query and audio:
         from services.storage import StorageService
         storage = StorageService()
         audio_path = await storage.save_audio(audio, device_id)
         
         stt = TranscriptionService()
-        user_query = await stt.transcribe(audio_path)
+        print("DEBUG: Calling STT...")
+        try:
+            user_query = await stt.transcribe(audio_path)
+            print(f"DEBUG: STT Result: '{user_query}'")
+        except Exception as e:
+            print(f"DEBUG: STT Failed: {e}")
+            user_query = ""
     
     # Handle wake word event if explicitly sent by hardware
     settings = get_settings()
@@ -107,7 +114,13 @@ async def ingest_data(
         }
     }
     
-    final_output = graph.invoke(initial_state)
+    print("DEBUG: Invoking Agent Graph...")
+    try:
+        final_output = graph.invoke(initial_state)
+        print(f"DEBUG: Graph Output Reply: {final_output.get('reply_text', 'No Reply')[:50]}...")
+    except Exception as e:
+        print(f"DEBUG: Graph Failed: {e}")
+        raise e
     
     # 5. Generate Response TTS
     settings = get_settings()
@@ -115,7 +128,12 @@ async def ingest_data(
     output_audio_path = os.path.join(settings.STORAGE_PATH, device_id, "responses", output_audio_name)
     
     tts = SpeechSynthesisService()
-    await tts.synthesize(final_output["reply_text"], output_audio_path)
+    print("DEBUG: Calling TTS...")
+    try:
+        await tts.synthesize(final_output["reply_text"], output_audio_path)
+        print("DEBUG: TTS Finished.")
+    except Exception as e:
+        print(f"DEBUG: TTS Failed: {e}")
     
     # 6. Save Conversation Record
     convo = Conversation(

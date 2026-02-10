@@ -238,6 +238,38 @@ select:focus {
     margin-top: 1rem;
 }
 
+.text-input-area {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.text-input-area input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 10px 15px;
+    color: var(--text-light);
+    font-family: inherit;
+    outline: none;
+    transition: border 0.3s;
+}
+
+.text-input-area input:focus {
+    border-color: var(--primary-color);
+}
+
+.btn.secondary {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.btn.secondary:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
 .message {
     max-width: 85%;
     padding: 0.8rem 1.2rem;

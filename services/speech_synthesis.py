@@ -43,3 +43,5 @@ class SpeechSynthesisService:
         # Write the response to the output file.
         with open(output_path, "wb") as out:
             out.write(response.audio_content)
+            
+        return output_path

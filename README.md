@@ -103,3 +103,31 @@ Try asking these questions to see how the agents coordinate:
 - `main.py`: FastAPI endpoints and integration.
 - `audio_artifacts/`: Local storage for voice recordings and responses.
 - `simulator/`: Web-based interaction frontend.
+
+## Hardware Integration Guide
+
+To connect your real ESP32 sensors and microphone to this backend:
+
+### 1. API Endpoint
+Send a `POST` request to `http://<YOUR_SERVER_IP>:8000/v1/ingest`.
+
+### 2. Payload Format (Multipart/Form-Data)
+The hardware must send data as a "multipart/form-data" request containing:
+
+- **Query Parameters**:
+  - `device_id` (string): Unique ID of your pot.
+  - `temperature` (float): Reading in Celsius.
+  - `moisture` (float): Soil moisture percentage (0-100).
+  - `light` (float): Light level (lux or percentage).
+  - `event` (optional string): "wake_word" if triggered by local detection.
+
+- **File Upload (Audio)**:
+  - Key: `audio`
+  - Format: **16-bit PCM WAV at 16000Hz** (Essential for Google STT).
+  - Audio content should be the voice command recorded by the ESP32.
+
+### 3. Handling the Response
+The server returns a JSON object. Your ESP32 should interpret/parse:
+- `reply_text`: The text to display on any screen.
+- `audio_url`: URL to download the response audio (WAV). Download and play this via I2S (MAX98357A).
+- `display.mood`: Update your e-paper/LCD face based on this (e.g., 'thirsty', 'happy').
