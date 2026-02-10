@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+langchain
+langgraph
+langchain-openai
+langchain-google-genai
+sqlmodel
+python-multipart
+python-dotenv
+aiofiles
+pydantic-settings
+sqlalchemy
+psycopg2-binary
+openai-whisper
+torch
