@@ -98,6 +98,7 @@ async def ingest_data(
     graph = create_pot_graph()
     initial_state = {
         "device_id": device_id,
+        "species": device.species,
         "user_query": user_query,
         "sensor_data": {
             "temperature": temperature,
@@ -128,6 +129,7 @@ async def ingest_data(
     session.commit()
     
     return {
+        "user_query": user_query,
         "reply_text": final_output["reply_text"],
         "audio_url": f"/v1/audio/{convo.id}", # Endpoint to serve the file
         "display": {
@@ -147,6 +149,23 @@ async def get_audio(convo_id: int, session: Session = Depends(get_session)):
     settings = get_settings()
     full_path = os.path.join(settings.STORAGE_PATH, convo.audio_file_path)
     return FileResponse(full_path, media_type="audio/wav")
+
+@app.post("/v1/device/{device_id}/species")
+async def update_species(
+    device_id: str, 
+    species: str, 
+    session: Session = Depends(get_session)
+):
+    """Updates the plant species for a specific device."""
+    device = session.get(Device, device_id)
+    if not device:
+        device = Device(id=device_id, name=f"Pot {device_id}", species=species)
+        session.add(device)
+    else:
+        device.species = species
+    
+    session.commit()
+    return {"status": "updated", "species": species}
 
 if __name__ == "__main__":
     import uvicorn

@@ -14,7 +14,6 @@ Based on the conversation and state, decide the final mood and display instructi
 Output MUST be valid JSON with keys: reply_text, mood, icons, priority.
 
 Available Moods: happy, thirsty, neutral, concerned, sunny
-Available Icons: sun, water, heart, warning
 Priority: low, medium, high
 
 Input:

@@ -1,16 +1,39 @@
 # Smart Plant Pot Backend
 
-A voice-enabled IoT backend for an ESP32-powered smart plant pot. Powered by FastAPI, LangGraph, and self-hosted Whisper.
+A voice-enabled IoT backend for an ESP32-powered smart plant pot. Powered by FastAPI, LangGraph, and Google Vertex AI.
 
-## Features
-- **Multi-Agent AI**: Specialized agents for sensor analysis, plant knowledge, and conversation.
-- **Local Speech-to-Text**: Privacy-focused transcription using OpenAI Whisper (running locally).
-- **IoT Integration**: Structured JSON + Audio response flow designed for microcontroller constraints.
+## Agentic Infrastructure
+
+The backend uses a multi-agent system powered by **LangGraph** to coordinate between specialized AI models. This ensures high-quality, intent-aware responses while maintaining strict data boundaries.
+
+### Conversation Flow
+```mermaid
+graph TD
+    A[User Audio/Query] --> B(RouterAgent)
+    B -->|HEALTH| C(SensorAgent)
+    B -->|IDENTITY/KNOWLEDGE| D(KnowledgeAgent)
+    B -->|CHAT| E(ConversationAgent)
+    
+    C --> D
+    D --> E
+    E --> F(ActionAgent)
+    F --> G[TTS & JSON Response]
+
+    style B fill:#f9f,stroke:#333,stroke-width:2px
+    style C fill:#bbf,stroke:#333,stroke-width:2px
+    style D fill:#dfd,stroke:#333,stroke-width:2px
+```
+
+### Core Agents
+- **RouterAgent**: Categorizes user intent (IDENTITY, HEALTH, KNOWLEDGE, CHAT). This prevents "data leakage"—for example, the plant won't talk about its physical sensors when asked about its history.
+- **SensorAgent**: Translates raw numerical data (moisture, temp) into physical "sensations" (e.g., "roots are parched").
+- **KnowledgeAgent**: Retrieves biological facts, species lore, and care tips based on the selected plant species.
+- **ConversationAgent**: The "soul" of the plant. Expresses thoughts with a witty, poetic, and slightly sarcastic personality.
+- **ActionAgent**: Finalizes the technical response (mood, icons, priority) for the device.
 
 ## Prerequisites
 - Python 3.9+
-- [FFmpeg](https://ffmpeg.org/download.html) (Required for local Whisper)
-- API Keys: Google Gemini (for LLM and TTS patterns)
+- API Keys: Google Gemini / Vertex AI (for LLM, STT, and TTS)
 
 ## Setup
 
@@ -26,7 +49,7 @@ A voice-enabled IoT backend for an ESP32-powered smart plant pot. Powered by Fas
    ```
    
    **Key Descriptions:**
-   - `GOOGLE_API_KEY`: Powers both the multi-agent system (LLM) and the speech synthesis (TTS) integration via Google Gemini.
+   - `GOOGLE_API_KEY`: A single key used for the multi-agent system (LLM), Google Cloud STT, and Google Cloud TTS.
 
 3. **Database Initialization**
    The database (SQLite by default) will be automatically created on the first run.
@@ -40,28 +63,38 @@ uvicorn main:app --reload
 
 ## Testing & Simulation
 
-### 1. Manual Simulation
-To simulate a device sending sensor data and a voice query:
+### 1. Web Simulator
+Open `http://localhost:8000/simulator/index.html` in your browser to interact with the plant using your microphone and simulated sensor sliders.
+
+### 2. Manual Simulation Script
+To simulate a device sending structured data:
 ```bash
 python tests/simulate_device.py
 ```
-*Note: Ensure you have a `tests/sample_query.wav` file for the audio simulation.*
 
-### 2. Service-level Tests
-To test the STT and TTS services in isolation:
-```bash
-python tests/test_services.py
-```
+## Example Test Queries
+
+Try asking these questions to see how the agents coordinate:
+
+- **Health Checks**:
+  - "Hey plant, how are you feeling?"
+  - "Do you need more water?"
+  - "Are the conditions in this room okay for you?"
+- **Plant Knowledge**:
+  - "What kind of plant are you?"
+  - "How much sunlight should you be getting?"
+  - "What's the ideal temperature for a Basil plant?"
+- **Personality & Interaction**:
+  - "Tell me a joke about plants."
+  - "Good morning! Did you sleep well?"
+  - "Who is your favorite gardener?"
 
 ## What to Test
 
-To ensure the hardware and backend are integrated correctly, verify the following:
-
-1. **API Connectivity**: Run the simulation script to confirm the server is reachable and responding with `status: healthy`.
-2. **"Hey Plant" Wake Word**: Verify that sending the `event: wake_word` trigger results in the backend acknowledging the activation and processing the subsequent audio.
-3. **Sensor Analysis**: Check if the AI correctly interprets temperature, moisture, and light values (e.g., detecting if the plant is "thirsty").
-4. **I2S Audio Output**: Ensure the generated audio response is a standard WAV (PCM 16-bit Mono, 16kHz) compatible with the **MAX98357** amplifier.
-5. **Conversation Tracking**: Confirm that recordings and AI responses are correctly stored in `audio_artifacts/` and logged in the database.
+1. **API Connectivity**: Confirm the server responds to `/health` with `status: healthy`.
+2. **STT Accuracy**: Verify your speech is correctly transcribed in the server logs.
+3. **Response Audio**: Ensure the generated WAV is 16kHz Mono and audible in the simulator.
+4. **Agent Logic**: Check if the "Knowledge Agent" provides accurate advice based on your current sensor readings.
 
 ## Project Structure
 - `agents/`: LangGraph orchestration and individual AI agents.
@@ -69,3 +102,4 @@ To ensure the hardware and backend are integrated correctly, verify the followin
 - `models.py`: Database schemas.
 - `main.py`: FastAPI endpoints and integration.
 - `audio_artifacts/`: Local storage for voice recordings and responses.
+- `simulator/`: Web-based interaction frontend.

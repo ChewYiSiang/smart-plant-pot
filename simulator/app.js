@@ -2,13 +2,30 @@ let mediaRecorder;
 let audioChunks = [];
 const recordBtn = document.getElementById('record-btn');
 const statusBadge = document.getElementById('app-status');
-const plantReply = document.getElementById('plant-reply');
 const plantAvatar = document.getElementById('plant-avatar');
 const moistureSlider = document.getElementById('moisture');
 const moistureVal = document.getElementById('moisture-val');
+const tempSlider = document.getElementById('temperature');
+const tempVal = document.getElementById('temperature-val');
+const lightSlider = document.getElementById('light');
+const lightVal = document.getElementById('light-val');
+const speciesSelect = document.getElementById('plant-species');
 
-moistureSlider.oninput = () => {
-    moistureVal.innerText = `${moistureSlider.value}%`;
+moistureSlider.oninput = () => moistureVal.innerText = `${moistureSlider.value}%`;
+tempSlider.oninput = () => tempVal.innerText = `${tempSlider.value}°C`;
+lightSlider.oninput = () => lightVal.innerText = `${lightSlider.value}%`;
+
+speciesSelect.onchange = async () => {
+    statusBadge.innerText = 'Updating Species...';
+    try {
+        await fetch(`http://localhost:8000/v1/device/pot_simulator_001/species?species=${speciesSelect.value}`, {
+            method: 'POST'
+        });
+        statusBadge.innerText = 'Species Updated';
+        setTimeout(() => statusBadge.innerText = 'Ready', 2000);
+    } catch (e) {
+        statusBadge.innerText = 'Error Updating';
+    }
 };
 
 recordBtn.onclick = async () => {
@@ -53,10 +70,10 @@ async function sendAudioToServer() {
 
     const params = new URLSearchParams({
         device_id: 'pot_simulator_001',
-        temperature: 25.0,
-        moisture: moistureSlider.value,
-        light: 450.0,
-        event: 'wake_word' // Simulating the hardware wake word trigger
+        temperature: parseFloat(tempSlider.value),
+        moisture: parseFloat(moistureSlider.value),
+        light: parseFloat(lightSlider.value),
+        event: 'wake_word'
     });
 
     try {
@@ -75,7 +92,26 @@ async function sendAudioToServer() {
 
 function handlePlantResponse(data) {
     statusBadge.innerText = 'Speaking...';
-    plantReply.innerText = `"${data.reply_text}"`;
+
+    const chatContainer = document.getElementById('chat-container');
+
+    // 1. Add User Message (if transcription available)
+    if (data.user_query) {
+        console.log("STT Output:", data.user_query); // Log for debugging
+        const userDiv = document.createElement('div');
+        userDiv.className = 'message user-message';
+        userDiv.innerHTML = `<small style="display:block;opacity:0.7;font-size:0.7rem;">I heard:</small>${data.user_query}`;
+        chatContainer.appendChild(userDiv);
+    }
+
+    // 2. Add Plant Message
+    const plantDiv = document.createElement('div');
+    plantDiv.className = 'message plant-message';
+    plantDiv.innerText = `"${data.reply_text}"`;
+    chatContainer.appendChild(plantDiv);
+
+    // 3. Scroll to bottom
+    chatContainer.scrollTop = chatContainer.scrollHeight;
 
     // Update visuals based on mood
     plantAvatar.className = 'plant-avatar'; // Reset

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
 </head>
+
 <body>
     <div class="app-container">
         <header>
@@ -17,19 +19,19 @@
         <main>
             <div class="plant-card">
                 <div class="plant-avatar" id="plant-avatar">
-                   <div class="leaf-left"></div>
-                   <div class="leaf-right"></div>
-                   <div class="pot">
-                       <div class="face" id="plant-face">
-                           <div class="eyes">
-                               <div class="eye"></div>
-                               <div class="eye"></div>
-                           </div>
-                           <div class="mouth"></div>
-                       </div>
-                   </div>
+                    <div class="leaf-left"></div>
+                    <div class="leaf-right"></div>
+                    <div class="pot">
+                        <div class="face" id="plant-face">
+                            <div class="eyes">
+                                <div class="eye"></div>
+                                <div class="eye"></div>
+                            </div>
+                            <div class="mouth"></div>
+                        </div>
+                    </div>
                 </div>
-                
+
                 <div class="status-badge" id="app-status">Ready</div>
             </div>
 
@@ -40,21 +42,45 @@
                 </button>
                 <div class="sensor-inputs">
                     <div class="input-group">
+                        <label>Plant Species</label>
+                        <select id="plant-species">
+                            <option value="Basil">Basil (Default)</option>
+                            <option value="Lavender">Lavender</option>
+                            <option value="Cactus">Cactus</option>
+                            <option value="Aloe Vera">Aloe Vera</option>
+                            <option value="Spider Plant">Spider Plant</option>
+                            <option value="Peace Lily">Peace Lily</option>
+                            <option value="Succulent">Succulent</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
                         <label>Moisture</label>
                         <input type="range" id="moisture" min="0" max="100" value="35">
                         <span id="moisture-val">35%</span>
+                    </div>
+                    <div class="input-group">
+                        <label>Temperature (°C)</label>
+                        <input type="range" id="temperature" min="0" max="50" value="22">
+                        <span id="temperature-val">22°C</span>
+                    </div>
+                    <div class="input-group">
+                        <label>Light Level (%)</label>
+                        <input type="range" id="light" min="0" max="100" value="60">
+                        <span id="light-val">60%</span>
                     </div>
                 </div>
             </div>
 
             <section class="transcript-section">
-                <h3>Plant Response</h3>
-                <div class="chat-bubble" id="plant-reply">
-                    "I'm waiting to hear from you!"
+                <h3>Conversation</h3>
+                <div class="chat-container" id="chat-container">
+                    <div class="message plant-message">
+                        "Welcome! I'm your digital {species}. Talk to me!"
+                    </div>
                 </div>
             </section>
         </main>
-        
+
         <footer>
             <div class="debug-info">
                 <span>Device ID: pot_simulator_001</span>
@@ -64,4 +90,5 @@
     </div>
     <script src="app.js"></script>
 </body>
+
 </html>
