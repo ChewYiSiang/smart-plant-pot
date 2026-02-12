@@ -181,7 +181,10 @@ async def ingest_data(
     
     # 4. Define High-Speed Dispatcher & Knowledge Logic
     from agents.orchestrator import fast_find_knowledge
-    keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care", "how are you"]
+    keywords_sensors = [
+        "light", "moisture", "water", "temperature", "temp", "hungry", "health", 
+        "care", "how are you", "routine", "advice", "habitat", "potting", "fertilizer"
+    ]
     query_text = (user_query or "").lower()
     is_sensor_query = any(k in query_text for k in keywords_sensors)
     local_knowledge = fast_find_knowledge(device.species) if (user_query and len(user_query) > 3) else None
