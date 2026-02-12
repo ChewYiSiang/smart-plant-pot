@@ -4,32 +4,24 @@ A voice-enabled IoT backend for an ESP32-powered smart plant pot. Powered by Fas
 
 ## Agentic Infrastructure
 
-The backend uses a multi-agent system powered by **LangGraph** to coordinate between specialized AI models. This ensures high-quality, intent-aware responses while maintaining strict data boundaries.
+The backend uses a streamlined **Digital Soul** architecture. Instead of multiple jumping between nodes, a unified agent manages intent, sensor awareness, and botanical expertise in a single pass. This significantly reduces latency while maintaining high intelligence.
 
 ### Conversation Flow
 ```mermaid
 graph TD
-    A[User Audio/Query] --> B(RouterAgent)
-    B -->|HEALTH| C(SensorAgent)
-    B -->|IDENTITY/KNOWLEDGE| D(KnowledgeAgent)
-    B -->|CHAT| E(ConversationAgent)
-    
-    C --> D
-    D --> E
-    E --> F(ActionAgent)
-    F --> G[TTS & JSON Response]
-
-    style B fill:#f9f,stroke:#333,stroke-width:2px
-    style C fill:#bbf,stroke:#333,stroke-width:2px
-    style D fill:#dfd,stroke:#333,stroke-width:2px
+    A[User Audio/Query] --> B(Ingest API)
+    B -->|Immediate Response| C(Frontend/Simulator)
+    B -->|Async/Streaming| D(Digital Soul Agent)
+    D -->|Step 1: Context Fusion| E(Sensors + Expert Lore)
+    E -->|Step 2: Generation| F(Ideal vs. Reality Response)
+    F -->|Step 3: Streaming| G(Audio Stream + Backchannels)
 ```
 
-### Core Agents
-- **RouterAgent**: Categorizes user intent (IDENTITY, HEALTH, KNOWLEDGE, CHAT). This prevents "data leakage"—for example, the plant won't talk about its physical sensors when asked about its history.
-- **SensorAgent**: Translates raw numerical data (moisture, temp) into physical "sensations" (e.g., "roots are parched").
-- **KnowledgeAgent**: Retrieves biological facts, species lore, and care tips based on the selected plant species.
-- **ConversationAgent**: The "soul" of the plant. Expresses thoughts with a witty, poetic, and slightly sarcastic personality.
-- **ActionAgent**: Finalizes the technical response (mood, icons, priority) for the device.
+### Core Features
+- **Unified Digital Soul**: A single-node agent that correlates current physical sensations (Temperature, Moisture, Light) with expert botanical lore.
+- **Ideal vs. Reality Structure**: For health and care queries, the plant leads with the botanical "Ideal" (Expert Lore) before stating its current "Reality" (Sensors), providing clear, actionable advice.
+- **Low-Latency Streaming**: Responses are streamed sentence-by-sentence. A verbal backchannel ("Hmm... let me see") triggers immediately to mask processing time.
+- **Natural Persona**: The plant speaks naturally, avoiding technical sensor names in its spoken responses while still being technically accurate about its needs.
 
 ## Prerequisites
 - Python 3.9+
@@ -93,41 +85,28 @@ Try asking these questions to see how the agents coordinate:
 
 1. **API Connectivity**: Confirm the server responds to `/health` with `status: healthy`.
 2. **STT Accuracy**: Verify your speech is correctly transcribed in the server logs.
-3. **Response Audio**: Ensure the generated WAV is 16kHz Mono and audible in the simulator.
-4. **Agent Logic**: Check if the "Knowledge Agent" provides accurate advice based on your current sensor readings.
+3. **Audio Streaming**: Ensure the audio starts with a verbal backchannel ("Hmm...") and flows smoothly sentence-by-sentence.
+4. **Ideal vs. Reality Logic**: Ask "How are you feeling?" or "Are you getting enough light?" and verify the plant states its botanical ideal before its current sensor reading.
 
 ## Project Structure
-- `agents/`: LangGraph orchestration and individual AI agents.
+- `agents/`: Implementation of the **Digital Soul** (ConversationAgent).
 - `services/`: STT, TTS, and storage management.
-- `models.py`: Database schemas.
-- `main.py`: FastAPI endpoints and integration.
-- `audio_artifacts/`: Local storage for voice recordings and responses.
+- `models.py`: Database schemas and seeding logic for botanical lore.
+- `main.py`: FastAPI endpoints, streaming logic, and ingest pipeline.
+- `audio_artifacts/`: Local storage for voice recordings and backchannels.
 - `simulator/`: Web-based interaction frontend.
 
 ## Hardware Integration Guide
 
 To connect your real ESP32 sensors and microphone to this backend:
 
-### 1. API Endpoint
-Send a `POST` request to `http://<YOUR_SERVER_IP>:8000/v1/ingest`.
+### 1. Ingest Data
+Send a `POST` request to `http://<YOUR_SERVER_IP>:8000/v1/ingest` with `device_id`, `temperature`, `moisture`, `light`, and an `audio` file (16kHz WAV).
 
-### 2. Payload Format (Multipart/Form-Data)
-The hardware must send data as a "multipart/form-data" request containing:
+### 2. Stream Response
+The `/v1/ingest` endpoint returns a JSON immediately with a `audio_url` (e.g., `/v1/audio/stream/123`). 
+- **Streaming**: Open a GET request to that URL. The server will stream the audio chunks using a standard `audio/wav` media type.
+- **Immediate Playback**: Your hardware can start playing the first chunk of audio as soon as it arrives, significantly reducing perceived latency.
 
-- **Query Parameters**:
-  - `device_id` (string): Unique ID of your pot.
-  - `temperature` (float): Reading in Celsius.
-  - `moisture` (float): Soil moisture percentage (0-100).
-  - `light` (float): Light level (lux or percentage).
-  - `event` (optional string): "wake_word" if triggered by local detection.
-
-- **File Upload (Audio)**:
-  - Key: `audio`
-  - Format: **16-bit PCM WAV at 16000Hz** (Essential for Google STT).
-  - Audio content should be the voice command recorded by the ESP32.
-
-### 3. Handling the Response
-The server returns a JSON object. Your ESP32 should interpret/parse:
-- `reply_text`: The text to display on any screen.
-- `audio_url`: URL to download the response audio (WAV). Download and play this via I2S (MAX98357A).
-- `display.mood`: Update your e-paper/LCD face based on this (e.g., 'thirsty', 'happy').
+### 3. Parse Metadata
+Use `GET /v1/history?device_id=<ID>` after the audio finishes to retrieve the final `reply_text` and `mood` for your display.
