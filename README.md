@@ -96,6 +96,111 @@ Try asking these questions to see how the agents coordinate:
 - `audio_artifacts/`: Local storage for voice recordings and backchannels.
 - `simulator/`: Web-based interaction frontend.
 
+## Hardware Setup & ESP32 Code
+
+To build the physical Smart Plant Pot, you will need:
+- **MCU**: ESP32-C3 Super Mini
+- **Temperature**: DS18B20 (1-Wire)
+- **Moisture**: Capacitive Soil Moisture Sensor (Analog)
+- **Audio In**: INMP441 or similar I2S Microphone
+- **Audio Out**: MAX98357A I2S DAC + 8Ω Speaker
+
+### 1. Wiring Diagram (ESP32-C3 Super Mini)
+
+| Component | ESP32-C3 Pin | Note |
+| :--- | :--- | :--- |
+| **DS18B20 (Data)** | GPIO 1 | Requires 4.7kΩ pull-up to 3.3V |
+| **Soil Moisture (Aout)**| GPIO 0 (A0) | Analog Input |
+| **I2S Mic (SCK)** | GPIO 2 | Clock |
+| **I2S Mic (WS)** | GPIO 3 | Word Select |
+| **I2S Mic (SD)** | GPIO 10 | Serial Data |
+| **MAX98357A (LRC)** | GPIO 4 | Word Select / LR Clock |
+| **MAX98357A (BCLK)** | GPIO 5 | Bit Clock |
+| **MAX98357A (DIN)** | GPIO 6 | Data In |
+
+### 2. Assembly Steps
+1. **Power**: Connect 3.3V and GND from the ESP32-C3 to all sensors. The MAX98357A can be connected to the 5V pin for higher volume.
+2. **Sensors**: Place the DS18B20 (Temperature) and Soil Moisture sensor in the pot.
+3. **Small Form Factor**: The C3 Super Mini is very small, so careful soldering or use of a breadboard is recommended.
+
+### 3. ESP32 Arduino Sketch
+Install these libraries in the Arduino IDE:
+- `OneWire` & `DallasTemperature`
+- `ArduinoJson`
+- `ESP32-audioI2S` (Ensure version 3.0+ for C3 support)
+
+```cpp
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include "Audio.h"
+
+// --- CONFIGURATION ---
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+const char* serverUrl = "http://<YOUR_SERVER_IP>:8000/v1/ingest";
+const char* deviceId = "pot_c3_mini";
+
+// --- PINS (Optimized for C3 Super Mini) ---
+#define ONE_WIRE_BUS 1
+#define MOISTURE_PIN 0
+#define I2S_SPEAKER_BCLK 5 
+#define I2S_SPEAKER_LRC 4
+#define I2S_SPEAKER_DIN 6
+// Note: Mic uses SCK(2), WS(3), SD(10) - defined in your recording logic
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+Audio audio;
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+  
+  sensors.begin();
+  audio.setPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
+  audio.setVolume(12);
+}
+
+void loop() {
+  sensors.requestTemperatures();
+  float temp = sensors.getTempCByIndex(0);
+  int moistureRaw = analogRead(MOISTURE_PIN);
+  float moisture = map(moistureRaw, 3000, 1000, 0, 100);
+
+  if (Serial.read() == 's') {
+    sendData(temp, moisture, 5.0); 
+  }
+  
+  audio.loop();
+}
+
+void sendData(float temp, float moisture, float light) {
+  HTTPClient http;
+  String url = String(serverUrl) + "?device_id=" + deviceId + 
+               "&temperature=" + String(temp) + 
+               "&moisture=" + String(moisture) + 
+               "&light=" + String(light);
+               
+  http.begin(url);
+  int httpCode = http.POST("");
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    StaticJsonDocument<512> doc;
+    deserializeJson(doc, payload);
+    const char* audioUrl = doc["audio_url"];
+    
+    String fullAudioUrl = "http://<YOUR_SERVER_IP>:8000" + String(audioUrl);
+    audio.connecttohost(fullAudioUrl.c_str());
+  }
+  http.end();
+}
+```
+
 ## Hardware Integration Guide
 
 To connect your real ESP32 sensors and microphone to this backend:
@@ -105,8 +210,8 @@ Send a `POST` request to `http://<YOUR_SERVER_IP>:8000/v1/ingest` with `device_i
 
 ### 2. Stream Response
 The `/v1/ingest` endpoint returns a JSON immediately with a `audio_url` (e.g., `/v1/audio/stream/123`). 
-- **Streaming**: Open a GET request to that URL. The server will stream the audio chunks using a standard `audio/wav` media type.
-- **Immediate Playback**: Your hardware can start playing the first chunk of audio as soon as it arrives, significantly reducing perceived latency.
+- **Streaming**: The `ESP32-audioI2S` library handles the `audio_url` directly. It will stream and play the audio chunks in real-time.
+- **Immediate Playback**: The plant's "Hmm..." backchannel will play as soon as the stream starts, followed by the actual answer.
 
 ### 3. Parse Metadata
-Use `GET /v1/history?device_id=<ID>` after the audio finishes to retrieve the final `reply_text` and `mood` for your display.
+Use `GET /v1/history?device_id=<ID>` after the audio finishes to retrieve the final `reply_text` and `mood` for your display/LCD face.
