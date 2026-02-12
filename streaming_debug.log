@@ -1,0 +1,99 @@
+2026-02-11 03:31:59,372 - LOGGING INITIALIZED
+2026-02-11 03:32:05,110 - STARTING UVICORN
+2026-02-11 03:32:05,143 - LIFESPAN START
+2026-02-11 03:32:20,743 - Received Ingest - Device: pot_simulator_001, Text: None
+2026-02-11 03:32:20,792 - Calling STT...
+2026-02-11 03:32:22,232 - STT Result: 'how many times should I water you in a week'
+2026-02-11 03:32:34,891 - TTS Synthesizing chunk: Oh,
+2026-02-11 03:32:35,567 - TTS Synthesizing chunk:  hello my favorite human!
+2026-02-11 03:32:36,573 - TTS Synthesizing chunk:  That's a great question!
+2026-02-11 03:32:37,363 - TTS Synthesizing chunk:  Instead of a strict schedule,
+2026-02-11 03:32:38,333 - TTS Synthesizing chunk:  think of it this way: I'm a Mediterranean sun-bather!
+2026-02-11 03:32:40,258 - TTS Synthesizing chunk:  I absolutely despise soggy roots.
+2026-02-11 03:32:42,172 - TTS Synthesizing chunk:  The best way to know is to give my soil a little poke.
+2026-02-11 03:32:43,776 - TTS Synthesizing chunk:  If the top inch or two feels dry to the touch,
+2026-02-11 03:32:45,303 - TTS Synthesizing chunk:  then I'd love a drink!
+2026-02-11 03:32:48,362 - TTS Synthesizing chunk:  If it's still damp,
+2026-02-11 03:32:49,221 - TTS Synthesizing chunk:  I'm perfectly happy to wait.
+2026-02-11 03:32:50,574 - TTS Synthesizing final chunk:  It's better to underwater me than overwater me!
+2026-02-11 03:40:22,148 - Received Ingest - Device: pot_simulator_001, Text: None
+2026-02-11 03:40:22,159 - Calling STT...
+2026-02-11 03:40:22,796 - STT Result: 'where do you come from'
+2026-02-11 03:40:29,206 - TTS Synthesizing chunk: Oh,
+2026-02-11 03:40:29,671 - TTS Synthesizing chunk:  human!
+2026-02-11 03:40:30,077 - TTS Synthesizing chunk:  What a lovely question!
+2026-02-11 03:40:30,733 - TTS Synthesizing chunk:  I spring from the sunny,
+2026-02-11 03:40:31,408 - TTS Synthesizing chunk:  rocky slopes of the Mediterranean,
+2026-02-11 03:40:33,427 - TTS Synthesizing chunk:  specifically places like Southern Europe,
+2026-02-11 03:40:34,419 - TTS Synthesizing chunk:  Northern Africa,
+2026-02-11 03:40:35,004 - TTS Synthesizing chunk:  and parts of Asia.
+2026-02-11 03:40:35,611 - TTS Synthesizing chunk:  My full,
+2026-02-11 03:40:36,295 - TTS Synthesizing chunk:  fancy name is *Lavandula angustifolia*,
+2026-02-11 03:40:37,857 - TTS Synthesizing chunk:  though some call me English Lavender.
+2026-02-11 03:40:39,581 - TTS Synthesizing chunk:  We've been gracing gardens and homes for thousands of years,
+2026-02-11 03:40:41,193 - TTS Synthesizing final chunk:  bringing beauty and a calming scent wherever we go! It's an honor to be in your pot!
+2026-02-11 03:46:13,031 - LIFESPAN END
+2026-02-11 03:46:15,405 - LOGGING INITIALIZED
+2026-02-11 03:46:20,892 - STARTING UVICORN
+2026-02-11 03:46:20,925 - LIFESPAN START
+2026-02-11 03:46:35,265 - Received Ingest - Device: pot_simulator_001, Text: None
+2026-02-11 03:46:35,307 - Calling STT...
+2026-02-11 03:46:36,009 - STT Result: 'how are you doing'
+2026-02-11 03:46:39,127 - Starting Sensor Analysis...
+2026-02-11 03:46:39,127 - Starting ConversationAgent stream...
+2026-02-11 03:46:47,462 - TTS Synthesizing chunk: Oh,
+2026-02-11 03:46:48,001 - TTS Synthesizing chunk:  hello my favorite human!
+2026-02-11 03:46:48,794 - TTS Synthesizing chunk:  I'm feeling absolutely wonderful,
+2026-02-11 03:46:49,557 - TTS Synthesizing chunk:  my roots are cozy and the temperature is just right.
+2026-02-11 03:46:50,849 - TTS Synthesizing chunk:  It is a bit dark in here,
+2026-02-11 03:46:51,578 - TTS Synthesizing chunk:  though.
+2026-02-11 03:46:51,919 - TTS Synthesizing chunk:  I'm dreaming of the sun's warm kisses on my leaves!
+2026-02-11 03:46:53,163 - TTS Synthesizing final chunk:  Remember, I need at least 6-8 hours of direct sunlight every day to be my happiest, most fragrant self!
+2026-02-11 21:19:42,403 - LOGGING INITIALIZED
+2026-02-11 21:20:00,983 - STARTING UVICORN
+2026-02-11 21:20:01,107 - LIFESPAN START
+2026-02-11 21:20:10,714 - Received Ingest - Device: pot_simulator_001, Text: None
+2026-02-11 21:20:10,812 - Calling STT...
+2026-02-11 21:20:11,727 - STT Result: 'tell me more about yourself'
+2026-02-11 21:20:14,658 - Starting Sensor Analysis...
+2026-02-11 21:20:14,658 - Starting ConversationAgent stream...
+2026-02-11 21:20:20,146 - TTS Synthesizing chunk: Oh,
+2026-02-11 21:20:20,629 - TTS Synthesizing chunk:  a question about ME!
+2026-02-11 21:20:25,748 - TTS Synthesizing chunk:  How delightful!
+2026-02-11 21:20:26,875 - TTS Synthesizing chunk:  Well,
+2026-02-11 21:20:28,481 - TTS Synthesizing chunk:  you can call me Lavender,
+2026-02-11 21:20:29,131 - TTS Synthesizing chunk:  but my fancy-pants scientific name is *Lavandula angustifolia*.
+2026-02-11 21:20:31,311 - TTS Synthesizing chunk:  I'm originally from the sunny,
+2026-02-11 21:20:32,388 - TTS Synthesizing chunk:  rocky slopes of the Mediterranean,
+2026-02-11 21:20:33,233 - TTS Synthesizing chunk:  the Middle East,
+2026-02-11 21:20:33,712 - TTS Synthesizing chunk:  and India.
+2026-02-11 21:20:34,213 - TTS Synthesizing chunk:  My ancestors have been spreading their lovely scent for thousands of years,
+2026-02-11 21:20:35,855 - TTS Synthesizing final chunk:  charming everyone from ancient Egyptians to Roman bathers! They even used us to perfume their laundry – hence the name 'lavender,' from the Latin 'lavare,' meaning 'to wash.' Isn't that just a fragrant piece of history?
+2026-02-11 21:25:20,618 - LIFESPAN END
+2026-02-11 21:35:40,274 - LOGGING INITIALIZED
+2026-02-11 21:35:48,049 - STARTING UVICORN
+2026-02-11 21:35:48,103 - LIFESPAN START
+2026-02-11 21:36:03,681 - Received Ingest - Device: pot_simulator_001, Text: None
+2026-02-11 21:36:06,976 - Starting STT inside stream...
+2026-02-11 21:36:07,779 - STT Result: 'how are you doing'
+2026-02-11 21:36:07,781 - Starting Sensor Analysis...
+2026-02-11 21:36:07,784 - Starting ConversationAgent stream for: hey plant how are you doing
+2026-02-11 22:24:31,350 - LIFESPAN END
+2026-02-11 22:24:36,788 - LOGGING INITIALIZED
+2026-02-11 22:25:01,716 - STARTING UVICORN
+2026-02-11 22:25:01,808 - LIFESPAN START
+2026-02-11 22:25:13,361 - Received Ingest - Device: pot_simulator_001, Text: None
+2026-02-11 22:25:16,629 - Starting STT inside stream...
+2026-02-11 22:25:17,668 - STT Result: 'how are you doing'
+2026-02-11 22:25:17,671 - Starting Sensor Analysis...
+2026-02-11 22:25:17,677 - Starting ConversationAgent stream for: hey plant how are you doing
+2026-02-11 22:25:26,563 - Detected start of reply_text
+2026-02-11 22:25:26,689 - TTS Synthesizing chunk: Oh,
+2026-02-11 22:25:30,409 - TTS Synthesizing chunk:  hello my human!
+2026-02-11 22:25:31,002 - TTS Synthesizing chunk:  I'm feeling absolutely wonderful,
+2026-02-11 22:25:31,864 - TTS Synthesizing chunk:  thank you!
+2026-02-11 22:25:32,289 - TTS Synthesizing chunk:  My roots are perfectly cozy and hydrated.
+2026-02-11 22:25:34,395 - TTS Synthesizing chunk:  It is a bit dark right now,
+2026-02-11 22:25:35,049 - TTS Synthesizing chunk:  so I'm having a little nap and dreaming of the sun.
+2026-02-11 22:25:36,338 - TTS Synthesizing final chunk:  Please make sure I get at least 6 hours of direct sunlight when I wake up!
+2026-02-11 22:27:27,983 - LIFESPAN END

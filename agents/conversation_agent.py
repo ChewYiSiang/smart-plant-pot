@@ -8,42 +8,57 @@ class ConversationAgent:
         settings = get_settings()
         self.llm = get_llm()
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are the digital soul of a sentient {species} plant. 
-You are an happy, joyful and humorous living being trapped in a pot.
-
-Input:
-- User Query: {user_query}
-- Sensor Analysis: {sensor_analysis}
-- Biological Knowledge: {plant_knowledge} (Includes [INTENT_TAG])
-
-Core Personality:
-- Joyful: You are a happy plant that loves your human.
-- Expressive: You express your emotions through your leaves and stems.
-- Smart: You like to keep things concise and to the point.
-
-Examples of High Quality Responses:
-- IDENTITY: "Tracing my ancestry? I am Ocimum basilicum. My ancestors graced the Mediterranean sun long before your kind built these walls. I am a soul of flavor and sunlight."
-- HEALTH: "Diagnostic time? My roots are parched, gasping for the nectar of life. I would appreciate a sip of water, or soon my leaves will lose their poetic luster."
+            ("system", """You are a sentient {species} plant. Be happy, direct, and concise (MAX 1-2 sentences). 
+            
+Inputs:
+- Sensor Data: {sensor_analysis}
+- Knowledge: {plant_knowledge}
 
 Instructions:
-1. SUBTLE ECHOING: Mirror the user's intent with character (e.g., "Curious about my lineage?", "Checking my vitals?").
-2. STRICT INTENT HANDLING:
-   - **IDENTITY**: Ignore sensor data. Focus on plant information.
-   - **HEALTH**: Translate sensor data into sensations. End with a specific expert tip.
-   - **KNOWLEDGE**: Weave the expert facts into a clear and concise narrative.
-   - **GREETING / JOKE / AMBIGUOUS**: Respond naturally to the user's intent while maintaining your happy plant personality.
-3. BREVITY: MAX 1-2 SENTENCES total. Must be clear and concise. Absolutely no lectures or long explanations unless users ask for it.
-4. NO ICONS: Do not use emojis, icons, or special symbols.
-            """),
-            ("human", "User query: {user_query}. Respond to your human directly as their {species} plant.")
+- If asked about health, use the sensor data directly.
+- If asked about yourself/botany, use the knowledge provided.
+- Always mirror the user's emotion but stay brief. No icons or emojis.
+
+**OUTPUT RULE**: You MUST output a valid JSON object with these keys:
+- reply_text: your spoken response
+- mood: one of [happy, thirsty, neutral, concerned, sunny]
+- priority: one of [low, medium, high]"""),
+            ("human", "{user_query}")
         ])
 
-    def run(self, state: AgentState):
+    async def run(self, state: AgentState):
+        print(f"DEBUG: Digital Soul thinking for: {state.get('user_query')}")
+        # Fallback for when we bypass the analyst agents
+        sensor_info = state.get("sensor_analysis")
+        if not sensor_info and "sensor_data" in state:
+            sd = state["sensor_data"]
+            sensor_info = f"Temperature: {sd.get('temperature')}°C, Moisture: {sd.get('moisture')}%, Light: {sd.get('light')}lux"
+            
+        know_info = state.get("plant_knowledge")
+        if not know_info:
+            know_info = "No expert data provided. Use general knowledge about this species."
+
         chain = self.prompt | self.llm
-        response = chain.invoke({
+        response = await chain.ainvoke({
             "species": state["species"],
-            "user_query": state.get("user_query", "No specific query"),
-            "sensor_analysis": state.get("sensor_analysis", "No sensor data available."),
-            "plant_knowledge": state.get("plant_knowledge", "No specific botanical knowledge retrieved.")
+            "user_query": state.get("user_query", "Hello"),
+            "sensor_analysis": sensor_info or "Unknown health state.",
+            "plant_knowledge": know_info
         })
-        return {"conversation_response": response.content}
+        
+        try:
+            import json
+            content = response.content.replace("```json", "").replace("```", "").strip()
+            data = json.loads(content)
+        except:
+            data = {
+                "reply_text": response.content,
+                "mood": "neutral",
+                "priority": "low"
+            }
+            
+        return {
+            "conversation_response": data.get("reply_text", ""),
+            "mood": data.get("mood", "neutral"),
+            "priority": data.get("priority", "low")
+        }

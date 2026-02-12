@@ -8,18 +8,20 @@ def get_llm():
     """
     settings = get_settings()
     
-    # Primary Model: Gemini 2.5 Pro
+    # Primary Model: Gemini 2.5 Pro (Restored as requested)
     llm_pro = ChatGoogleGenerativeAI(
         google_api_key=settings.GOOGLE_API_KEY, 
         model="gemini-2.5-pro",
-        temperature=0.7
+        temperature=0.7,
+        streaming=True
     )
     
-    # Fallback Model: Gemini 2.5 Flash (Faster, cheaper, backup)
+    # Fallback Model: Gemini 2.5 Flash
     llm_flash = ChatGoogleGenerativeAI(
         google_api_key=settings.GOOGLE_API_KEY, 
         model="gemini-2.5-flash",
-        temperature=0.7
+        temperature=0.7,
+        streaming=True
     )
     
     # Create a runnable with fallback

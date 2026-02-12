@@ -34,6 +34,13 @@ class Conversation(SQLModel, table=True):
     
     device: Device = Relationship(back_populates="conversations")
 
+class PlantKnowledge(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    species: str = Field(index=True)
+    biological_info: str
+    care_tips: str
+    lore: str
+
 # Database engine helper
 from config import get_settings
 

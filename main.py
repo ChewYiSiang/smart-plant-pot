@@ -2,7 +2,7 @@ import os
 from datetime import datetime, UTC
 from typing import Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query
+from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
@@ -48,12 +48,47 @@ from agents.orchestrator import create_pot_graph
 from services.transcription import TranscriptionService
 from services.speech_synthesis import SpeechSynthesisService
 
+async def archive_conversation_task(device_id: str, transcription: str, ai_response: str):
+    """Background task to archive conversation and synthesize a full audio file."""
+    from models import get_engine, Conversation
+    from services.speech_synthesis import SpeechSynthesisService
+    from sqlmodel import Session
+    import os
+    from datetime import datetime
+    from config import get_settings # Import get_settings here for background task scope
+    
+    settings = get_settings()
+    tts = SpeechSynthesisService()
+    
+    try:
+        # Synthesis for archival file
+        full_audio = await tts.synthesize_stream(ai_response)
+        filename = f"reco_{device_id}_{int(datetime.now().timestamp())}.wav"
+        save_path = os.path.join(settings.STORAGE_PATH, filename)
+        
+        with open(save_path, "wb") as f:
+            f.write(full_audio)
+            
+        with Session(get_engine()) as session:
+            convo = Conversation(
+                device_id=device_id,
+                transcription=transcription,
+                ai_response=ai_response,
+                audio_file_path=filename
+            )
+            session.add(convo)
+            session.commit()
+        print(f"DEBUG: Archived conversation for {device_id}")
+    except Exception as e:
+        print(f"DEBUG: Archiver failed: {e}")
+
 @app.post("/v1/ingest")
 async def ingest_data(
     device_id: str,
     temperature: float,
     moisture: float,
     light: float,
+    background_tasks: BackgroundTasks,
     user_query: Optional[str] = Query(None),
     event: Optional[str] = None,
     audio: Optional[UploadFile] = File(None),
@@ -101,62 +136,87 @@ async def ingest_data(
         if settings.WAKE_WORD.lower() not in user_query.lower():
             user_query = f"{settings.WAKE_WORD} {user_query}"
     
-    # 4. Trigger Multi-Agent Flow
-    graph = create_pot_graph()
-    initial_state = {
+    # 4. Define High-Speed Dispatcher Logic (Direct execution for speed)
+    from agents.orchestrator import fast_find_knowledge
+    keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care"]
+    query_text = (user_query or "").lower()
+    is_sensor_query = any(k in query_text for k in keywords_sensors)
+    local_knowledge = fast_find_knowledge(device.species) if (user_query and len(user_query) > 3) else None
+    
+    sensor_text = f"Temp: {temperature}, Moisture: {moisture}, Light: {light}" if is_sensor_query else "Not requested."
+    know_text = f"{local_knowledge.biological_info} {local_knowledge.care_tips}" if local_knowledge else "No local data found."
+
+    # 5. Process with Unified Digital Soul
+    from agents.conversation_agent import ConversationAgent
+    agent = ConversationAgent()
+    
+    state = {
         "device_id": device_id,
         "species": device.species,
-        "user_query": user_query,
-        "sensor_data": {
-            "temperature": temperature,
-            "moisture": moisture,
-            "light": light
-        }
+        "user_query": user_query or "Hello",
+        "sensor_analysis": sensor_text,
+        "plant_knowledge": know_text,
+        "sensor_data": {"temperature": temperature, "moisture": moisture, "light": light}
     }
     
-    print("DEBUG: Invoking Agent Graph...")
-    try:
-        final_output = graph.invoke(initial_state)
-        print(f"DEBUG: Intent Tag: {final_output.get('intent_tag', 'None')}")
-        print(f"DEBUG: Graph Output Reply: {final_output.get('reply_text', 'No Reply')[:50]}...")
-    except Exception as e:
-        print(f"DEBUG: Graph Failed: {e}")
-        raise e
-    
-    # 5. Generate Response TTS
-    settings = get_settings()
-    output_audio_name = f"response_{int(datetime.now(UTC).timestamp())}.wav"
-    output_audio_path = os.path.join(settings.STORAGE_PATH, device_id, "responses", output_audio_name)
-    
+    # Run the unified agent (merged conversation + action)
+    result = await agent.run(state)
+    reply_text = result.get("conversation_response", "")
+    mood = result.get("mood", "neutral")
+    priority = result.get("priority", "low")
+
+    # 6. Generate Audio and Archival Record
     tts = SpeechSynthesisService()
-    print("DEBUG: Calling TTS...")
-    try:
-        await tts.synthesize(final_output["reply_text"], output_audio_path)
-        print("DEBUG: TTS Finished.")
-    except Exception as e:
-        print(f"DEBUG: TTS Failed: {e}")
+    audio_content = await tts.synthesize_stream(reply_text)
     
-    # 6. Save Conversation Record
+    filename = f"resp_{device_id}_{int(datetime.now().timestamp())}.wav"
+    audio_save_path = os.path.join(settings.STORAGE_PATH, filename)
+    with open(audio_save_path, "wb") as f:
+        f.write(audio_content)
+        
+    # Save conversation to DB
     convo = Conversation(
         device_id=device_id,
         transcription=user_query,
-        ai_response=final_output["reply_text"],
-        mood=final_output["mood"],
-        audio_file_path=os.path.join(device_id, "responses", output_audio_name)
+        ai_response=reply_text,
+        mood=mood,
+        audio_file_path=filename
     )
     session.add(convo)
     session.commit()
-    
+    session.refresh(convo)
+
+    # 7. Return Final JSON Payload
     return {
         "user_query": user_query,
-        "reply_text": final_output["reply_text"],
-        "audio_url": f"/v1/audio/{convo.id}", # Endpoint to serve the file
+        "reply_text": reply_text,
+        "audio_url": f"/audio/{filename}",
         "display": {
-            "mood": final_output["mood"],
-            "priority": final_output["priority"]
-        }
+            "mood": mood,
+            "priority": priority
+        },
+        "id": convo.id
     }
 
+
+@app.get("/v1/history")
+async def get_history(device_id: str = "pot_simulator_001", session: Session = Depends(get_session)):
+    from sqlmodel import select
+    statement = select(Conversation).where(Conversation.device_id == device_id).order_by(Conversation.timestamp.desc()).limit(10)
+    results = session.exec(statement).all()
+    
+    # Format for frontend
+    history = []
+    for c in results:
+        history.append({
+            "id": c.id,
+            "user_query": c.transcription,
+            "reply_text": c.ai_response,
+            "mood": c.mood,
+            "audio_url": f"/audio/{c.audio_file_path}" if c.audio_file_path else None,
+            "timestamp": c.timestamp.isoformat()
+        })
+    return history
 
 @app.get("/v1/audio/{convo_id}")
 async def get_audio(convo_id: int, session: Session = Depends(get_session)):
