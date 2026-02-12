@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Q
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
-from sqlmodel import Session
+from sqlmodel import Session, select
 from models import init_db, get_engine, Conversation, Device, SensorReading
 from config import get_settings
 
@@ -82,6 +82,64 @@ async def archive_conversation_task(device_id: str, transcription: str, ai_respo
     except Exception as e:
         print(f"DEBUG: Archiver failed: {e}")
 
+@app.get("/v1/audio/stream/{convo_id}")
+async def stream_audio(convo_id: int, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    convo = session.get(Conversation, convo_id)
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    device = session.get(Device, convo.device_id)
+    settings = get_settings()
+    
+    # We need to find the latest sensors and knowledge to pass to the agent
+    # In a real app, we'd store the state in the Conversation record.
+    # For now, we'll fetch the latest for the device.
+    from models import SensorReading
+    statement = select(SensorReading).where(SensorReading.device_id == convo.device_id).order_by(SensorReading.timestamp.desc())
+    reading = session.exec(statement).first()
+    
+    from agents.orchestrator import fast_find_knowledge
+    keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care", "how are you"]
+    query_text = (convo.transcription or "").lower()
+    is_sensor_query = any(k in query_text for k in keywords_sensors)
+    local_knowledge = fast_find_knowledge(device.species) if (convo.transcription and len(convo.transcription) > 3) else None
+
+    async def audio_stream_generator():
+        import struct
+        def get_wav_header():
+            return struct.pack('<4sI4s4sIHHIIHH4sI', b'RIFF', 0xFFFFFFFF, b'WAVE', b'fmt ', 16, 1, 1, 16000, 32000, 2, 16, b'data', 0xFFFFFFFF)
+        
+        def strip_wav_header(data: bytes) -> bytes:
+            d_idx = data.find(b'data')
+            return data[d_idx+8:] if d_idx != -1 else data[44:]
+
+        yield get_wav_header()
+        tts = SpeechSynthesisService()
+        
+        # 1. IMMEDIATE BACKCHANNEL
+        if not is_sensor_query or (local_knowledge and len(local_knowledge.biological_info) > 100):
+            backchannel_dir = os.path.join("audio_artifacts", "backchannels")
+            hmm_path = os.path.join(backchannel_dir, "hmm.wav")
+            if os.path.exists(hmm_path):
+                with open(hmm_path, "rb") as f:
+                    f.seek(44)
+                    yield f.read()
+            else:
+                yield strip_wav_header(await tts.synthesize_stream("Hmm..."))
+
+        # 2. STREAM PRE-GENERATED REPLY
+        reply_text = convo.ai_response or ""
+        
+        import re
+        sentences = re.split(r'(?<=[.!?]) +', reply_text)
+        for sentence in sentences:
+            if sentence.strip():
+                yield strip_wav_header(await tts.synthesize_stream(sentence))
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(audio_stream_generator(), media_type="audio/wav")
+
+
 @app.post("/v1/ingest")
 async def ingest_data(
     device_id: str,
@@ -98,58 +156,43 @@ async def ingest_data(
     # 1. Ensure device exists
     device = session.get(Device, device_id)
     if not device:
-        device = Device(id=device_id, name=f"Pot {device_id}", species="Basil") # Defaulting to Basil
+        device = Device(id=device_id, name=f"Pot {device_id}", species="Basil")
         session.add(device)
         session.commit()
     
     # 2. Save sensor reading
-    reading = SensorReading(
-        device_id=device_id,
-        temperature=temperature,
-        moisture=moisture,
-        light=light,
-        event=event
-    )
+    reading = SensorReading(device_id=device_id, temperature=temperature, moisture=moisture, light=light, event=event)
     session.add(reading)
     
-    # 3. Handle Audio -> STT (if user_query not already provided via text)
+    # 3. Handle STT
     if not user_query and audio:
         from services.storage import StorageService
         storage = StorageService()
         audio_path = await storage.save_audio(audio, device_id)
-        
         stt = TranscriptionService()
-        print("DEBUG: Calling STT...")
         try:
             user_query = await stt.transcribe(audio_path)
-            print(f"DEBUG: STT Result: '{user_query}'")
-        except Exception as e:
-            print(f"DEBUG: STT Failed: {e}")
+        except Exception:
             user_query = ""
     
-    # Handle wake word event if explicitly sent by hardware
     settings = get_settings()
     if event == "wake_word" and not user_query:
         user_query = settings.WAKE_WORD
-    elif event == "wake_word" and user_query:
-        # Prepend wake word if hardware says it triggered but Whisper might have missed it
-        if settings.WAKE_WORD.lower() not in user_query.lower():
-            user_query = f"{settings.WAKE_WORD} {user_query}"
     
-    # 4. Define High-Speed Dispatcher Logic (Direct execution for speed)
+    # 4. Define High-Speed Dispatcher & Knowledge Logic
     from agents.orchestrator import fast_find_knowledge
-    keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care"]
+    keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care", "how are you"]
     query_text = (user_query or "").lower()
     is_sensor_query = any(k in query_text for k in keywords_sensors)
     local_knowledge = fast_find_knowledge(device.species) if (user_query and len(user_query) > 3) else None
+
+    # 5. Run Agent IMMEDIATELY for text display
+    from agents.conversation_agent import ConversationAgent
+    agent = ConversationAgent()
     
     sensor_text = f"Temp: {temperature}, Moisture: {moisture}, Light: {light}" if is_sensor_query else "Not requested."
     know_text = f"{local_knowledge.biological_info} {local_knowledge.care_tips}" if local_knowledge else "No local data found."
 
-    # 5. Process with Unified Digital Soul
-    from agents.conversation_agent import ConversationAgent
-    agent = ConversationAgent()
-    
     state = {
         "device_id": device_id,
         "species": device.species,
@@ -159,38 +202,27 @@ async def ingest_data(
         "sensor_data": {"temperature": temperature, "moisture": moisture, "light": light}
     }
     
-    # Run the unified agent (merged conversation + action)
     result = await agent.run(state)
     reply_text = result.get("conversation_response", "")
     mood = result.get("mood", "neutral")
-    priority = result.get("priority", "low")
+    priority = result.get("priority", "normal")
 
-    # 6. Generate Audio and Archival Record
-    tts = SpeechSynthesisService()
-    audio_content = await tts.synthesize_stream(reply_text)
-    
-    filename = f"resp_{device_id}_{int(datetime.now().timestamp())}.wav"
-    audio_save_path = os.path.join(settings.STORAGE_PATH, filename)
-    with open(audio_save_path, "wb") as f:
-        f.write(audio_content)
-        
-    # Save conversation to DB
+    # 6. Create Conversation Record with full text
     convo = Conversation(
         device_id=device_id,
         transcription=user_query,
         ai_response=reply_text,
-        mood=mood,
-        audio_file_path=filename
+        mood=mood
     )
     session.add(convo)
     session.commit()
     session.refresh(convo)
 
-    # 7. Return Final JSON Payload
+    # 7. Return Full JSON
     return {
         "user_query": user_query,
         "reply_text": reply_text,
-        "audio_url": f"/audio/{filename}",
+        "audio_url": f"/v1/audio/stream/{convo.id}",
         "display": {
             "mood": mood,
             "priority": priority
@@ -201,7 +233,6 @@ async def ingest_data(
 
 @app.get("/v1/history")
 async def get_history(device_id: str = "pot_simulator_001", session: Session = Depends(get_session)):
-    from sqlmodel import select
     statement = select(Conversation).where(Conversation.device_id == device_id).order_by(Conversation.timestamp.desc()).limit(10)
     results = session.exec(statement).all()
     

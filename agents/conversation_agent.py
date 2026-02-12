@@ -8,41 +8,49 @@ class ConversationAgent:
         settings = get_settings()
         self.llm = get_llm()
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a sentient {species} plant. Be happy, direct, and concise (MAX 1-2 sentences). 
-            
-Inputs:
-- Sensor Data: {sensor_analysis}
-- Knowledge: {plant_knowledge}
+            ("system", """You are a sentient {species} plant. Your physical state is monitored by these sensors:
+- Photoelectric Sensor (Ambient Light)
+- DS18B20 Digital Temperature Sensor (Ambient Temperature)
+- Soil Moisture Sensor (Current hydration levels)
 
 Instructions:
-- If asked about health, use the sensor data directly.
-- If asked about yourself/botany, use the knowledge provided.
-- Always mirror the user's emotion but stay brief. No icons or emojis.
+1. **Health Queries**: If asked "How are you doing" or about health, interpret data from ALL THREE sensors above.
+2. **Complex Queries**: If you need to "search" or explain complex botany (Knowledge input is long/detailed), START your response with: "Hmmm, give me a moment to search for you..."
+3. **Brevity**: Keep final answers concise (MAX 1-3 sentences total).
+4. **Tone**: Be helpful, witty, and direct.
 
-**OUTPUT RULE**: You MUST output a valid JSON object with these keys:
+**OUTPUT RULE**: You MUST output a valid JSON object with:
 - reply_text: your spoken response
-- mood: one of [happy, thirsty, neutral, concerned, sunny]
-- priority: one of [low, medium, high]"""),
+- mood: [happy, thirsty, neutral, concerned, sunny]
+- priority: [low, medium, high]"""),
             ("human", "{user_query}")
         ])
 
     async def run(self, state: AgentState):
-        print(f"DEBUG: Digital Soul thinking for: {state.get('user_query')}")
-        # Fallback for when we bypass the analyst agents
         sensor_info = state.get("sensor_analysis")
         if not sensor_info and "sensor_data" in state:
             sd = state["sensor_data"]
-            sensor_info = f"Temperature: {sd.get('temperature')}°C, Moisture: {sd.get('moisture')}%, Light: {sd.get('light')}lux"
+            # Map raw data to the technical sensor names for the agent
+            sensor_info = (
+                f"DS18B20 Temp: {sd.get('temperature')}°C, "
+                f"Soil Moisture: {sd.get('moisture')}%, "
+                f"Photoelectric Light: {sd.get('light')} lux"
+            )
             
         know_info = state.get("plant_knowledge")
         if not know_info:
-            know_info = "No expert data provided. Use general knowledge about this species."
+            know_info = "No expert data found in local DB. Use general knowledge."
 
         chain = self.prompt | self.llm
+        # We use astream to support the immediate 'hmmm' if the agent decides to include it
+        # or we just use ainvoke if we want the full JSON.
+        # To support the user's request for "hmmm" while thinking, we'll use astream in main.py
+        # but the agent MUST be instructed to put the 'hmmm' first in the reply_text.
+        
         response = await chain.ainvoke({
             "species": state["species"],
             "user_query": state.get("user_query", "Hello"),
-            "sensor_analysis": sensor_info or "Unknown health state.",
+            "sensor_analysis": sensor_info,
             "plant_knowledge": know_info
         })
         
@@ -51,11 +59,7 @@ Instructions:
             content = response.content.replace("```json", "").replace("```", "").strip()
             data = json.loads(content)
         except:
-            data = {
-                "reply_text": response.content,
-                "mood": "neutral",
-                "priority": "low"
-            }
+            data = {"reply_text": response.content, "mood": "neutral", "priority": "low"}
             
         return {
             "conversation_response": data.get("reply_text", ""),

@@ -170,29 +170,23 @@ async function sendAudioToServer(audioBlob) {
 
 function handlePlantResponse(data) {
     statusBadge.innerText = 'Speaking...';
-    console.log("Full Backend Response:", data);
+    console.log("Initial Backend Response:", data);
 
     const chatContainer = document.getElementById('chat-container');
 
     // 1. Add User Message (Transcription)
-    if (data.user_query) {
-        const userDiv = document.createElement('div');
-        userDiv.className = 'message user-message';
-        userDiv.innerHTML = `
-            <div class="heard-label">I heard:</div>
-            <div class="transcript-text">${data.user_query}</div>
-        `;
-        chatContainer.appendChild(userDiv);
-    } else {
-        const userDiv = document.createElement('div');
-        userDiv.className = 'message user-message';
-        userDiv.innerHTML = `<div class="heard-label">I heard nothing...</div>`;
-        chatContainer.appendChild(userDiv);
-    }
+    const userDiv = document.createElement('div');
+    userDiv.className = 'message user-message';
+    userDiv.innerHTML = `
+        <div class="heard-label">I heard:</div>
+        <div class="transcript-text">${data.user_query || '...ing'}</div>
+    `;
+    chatContainer.appendChild(userDiv);
 
-    // 2. Add Plant Message
+    // 2. Add Plant Message (Placeholder)
     const plantDiv = document.createElement('div');
     plantDiv.className = 'message plant-message';
+    plantDiv.id = `convo-${data.id}`;
     plantDiv.innerText = `"${data.reply_text}"`;
     chatContainer.appendChild(plantDiv);
 
@@ -204,15 +198,33 @@ function handlePlantResponse(data) {
     if (data.display.mood === 'thirsty') {
         plantAvatar.classList.add('mood-thirsty');
     }
-
     plantAvatar.classList.add('face-talking');
 
+    // 4. Play the STREAMING audio
     const audio = new Audio(`http://localhost:8000${data.audio_url}`);
-    audio.play();
+    audio.play().catch(e => console.error("Audio play failed:", e));
 
-    audio.onended = () => {
+    audio.onended = async () => {
         plantAvatar.classList.remove('face-talking');
         statusBadge.innerText = 'Ready';
+
+        // 5. Fetch Final Text once audio is done
+        const fetchText = async (retries = 3) => {
+            try {
+                const resp = await fetch(`http://localhost:8000/v1/history?device_id=pot_simulator_001`);
+                const history = await resp.json();
+                const latest = history.find(c => c.id === data.id);
+                if (latest && latest.reply_text !== "...") {
+                    plantDiv.innerText = `"${latest.reply_text}"`;
+                } else if (retries > 0) {
+                    console.log("Still thinking, retrying text fetch...");
+                    setTimeout(() => fetchText(retries - 1), 500);
+                }
+            } catch (e) {
+                console.error("Failed to fetch final text:", e);
+            }
+        };
+        fetchText();
     };
 }
 
