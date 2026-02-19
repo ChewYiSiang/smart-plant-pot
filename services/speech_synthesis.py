@@ -11,7 +11,7 @@ class SpeechSynthesisService:
         self.client = texttospeech.TextToSpeechClient(client_options=options)
 
     async def synthesize(self, text: str, output_path: str):
-        """Synthesizes text to a 16kHz Mono WAV file using Google Cloud TTS."""
+        """Synthesizes text to an MP3 file using Google Cloud TTS."""
         
         # Set the text input to be synthesized
         synthesis_input = texttospeech.SynthesisInput(text=text)
@@ -24,11 +24,8 @@ class SpeechSynthesisService:
         )
 
         # Select the type of audio file you want returned
-        # LINEAR16 = Uncompressed 16-bit PCM (WAV)
-        # sample_rate_hertz = 16000 (Optimized for MAX98357)
         audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-            sample_rate_hertz=self.settings.AUDIO_SAMPLE_RATE,
+            audio_encoding=texttospeech.AudioEncoding.MP3,
             effects_profile_id=["small-bluetooth-speaker-class-device"] # Optimization profile
         )
 
@@ -47,7 +44,7 @@ class SpeechSynthesisService:
         return output_path
 
     async def synthesize_stream(self, text: str) -> bytes:
-        """Synthesizes text and returns raw audio bytes (LINEAR16)."""
+        """Synthesizes text and returns raw audio bytes (MP3)."""
         synthesis_input = texttospeech.SynthesisInput(text=text)
         
         voice = texttospeech.VoiceSelectionParams(
@@ -57,8 +54,7 @@ class SpeechSynthesisService:
         )
         
         audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-            sample_rate_hertz=self.settings.AUDIO_SAMPLE_RATE,
+            audio_encoding=texttospeech.AudioEncoding.MP3,
             effects_profile_id=["small-bluetooth-speaker-class-device"]
         )
         

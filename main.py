@@ -63,7 +63,7 @@ async def archive_conversation_task(device_id: str, transcription: str, ai_respo
     try:
         # Synthesis for archival file
         full_audio = await tts.synthesize_stream(ai_response)
-        filename = f"reco_{device_id}_{int(datetime.now().timestamp())}.wav"
+        filename = f"reco_{device_id}_{int(datetime.now().timestamp())}.mp3"
         save_path = os.path.join(settings.STORAGE_PATH, filename)
         
         with open(save_path, "wb") as f:
@@ -83,62 +83,38 @@ async def archive_conversation_task(device_id: str, transcription: str, ai_respo
         print(f"DEBUG: Archiver failed: {e}")
 
 @app.get("/v1/audio/stream/{convo_id}")
-async def stream_audio(convo_id: int, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
     convo = session.get(Conversation, convo_id)
     if not convo:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    device = session.get(Device, convo.device_id)
-    settings = get_settings()
-    
-    # We need to find the latest sensors and knowledge to pass to the agent
-    # In a real app, we'd store the state in the Conversation record.
-    # For now, we'll fetch the latest for the device.
-    from models import SensorReading
-    statement = select(SensorReading).where(SensorReading.device_id == convo.device_id).order_by(SensorReading.timestamp.desc())
-    reading = session.exec(statement).first()
-    
-    from agents.orchestrator import fast_find_knowledge
-    keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care", "how are you"]
-    query_text = (convo.transcription or "").lower()
-    is_sensor_query = any(k in query_text for k in keywords_sensors)
-    local_knowledge = fast_find_knowledge(device.species) if (convo.transcription and len(convo.transcription) > 3) else None
-
     async def audio_stream_generator():
-        import struct
-        def get_wav_header():
-            return struct.pack('<4sI4s4sIHHIIHH4sI', b'RIFF', 0xFFFFFFFF, b'WAVE', b'fmt ', 16, 1, 1, 16000, 32000, 2, 16, b'data', 0xFFFFFFFF)
-        
-        def strip_wav_header(data: bytes) -> bytes:
-            d_idx = data.find(b'data')
-            return data[d_idx+8:] if d_idx != -1 else data[44:]
-
-        yield get_wav_header()
         tts = SpeechSynthesisService()
         
-        # 1. IMMEDIATE BACKCHANNEL
-        if not is_sensor_query or (local_knowledge and len(local_knowledge.biological_info) > 100):
+        # 1. Backchannel
+        query_text = (convo.transcription or "").lower()
+        keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care", "how are you"]
+        is_sensor_query = any(k in query_text for k in keywords_sensors)
+        
+        if not is_sensor_query:
             backchannel_dir = os.path.join("audio_artifacts", "backchannels")
-            hmm_path = os.path.join(backchannel_dir, "hmm.wav")
+            hmm_path = os.path.join(backchannel_dir, "hmm.mp3") 
             if os.path.exists(hmm_path):
                 with open(hmm_path, "rb") as f:
-                    f.seek(44)
                     yield f.read()
             else:
-                yield strip_wav_header(await tts.synthesize_stream("Hmm..."))
+                yield await tts.synthesize_stream("Hmm...")
 
-        # 2. STREAM PRE-GENERATED REPLY
-        reply_text = convo.ai_response or ""
-        
+        # 2. Sentences
         import re
+        reply_text = convo.ai_response or ""
         sentences = re.split(r'(?<=[.!?]) +', reply_text)
         for sentence in sentences:
             if sentence.strip():
-                yield strip_wav_header(await tts.synthesize_stream(sentence))
+                yield await tts.synthesize_stream(sentence)
 
     from fastapi.responses import StreamingResponse
-    return StreamingResponse(audio_stream_generator(), media_type="audio/wav")
-
+    return StreamingResponse(audio_stream_generator(), media_type="audio/mpeg")
 
 @app.post("/v1/ingest")
 async def ingest_data(
@@ -165,6 +141,7 @@ async def ingest_data(
     session.add(reading)
     
     # 3. Handle STT
+    is_silent_recording = False
     if not user_query and audio:
         from services.storage import StorageService
         storage = StorageService()
@@ -172,14 +149,19 @@ async def ingest_data(
         stt = TranscriptionService()
         try:
             user_query = await stt.transcribe(audio_path)
+            if not user_query:
+                is_silent_recording = True
         except Exception:
             user_query = ""
+            is_silent_recording = True
     
     settings = get_settings()
     if event == "wake_word" and not user_query:
         user_query = settings.WAKE_WORD
+        is_silent_recording = False # Override if it's just the wake word
     
     # 4. Define High-Speed Dispatcher & Knowledge Logic
+    # (Removed duplicated code for brevity, logic remains the same)
     from agents.orchestrator import fast_find_knowledge
     keywords_sensors = [
         "light", "moisture", "water", "temperature", "temp", "hungry", "health", 
@@ -189,26 +171,32 @@ async def ingest_data(
     is_sensor_query = any(k in query_text for k in keywords_sensors)
     local_knowledge = fast_find_knowledge(device.species) if (user_query and len(user_query) > 3) else None
 
-    # 5. Run Agent IMMEDIATELY for text display
-    from agents.conversation_agent import ConversationAgent
-    agent = ConversationAgent()
-    
-    sensor_text = f"Temp: {temperature}, Moisture: {moisture}, Light: {light}" if is_sensor_query else "Not requested."
-    know_text = f"{local_knowledge.biological_info} {local_knowledge.care_tips}" if local_knowledge else "No local data found."
+    # 5. Handle Response Generation
+    if is_silent_recording:
+        reply_text = "Hi there, I didn't catch what you said. Could you repeat that?"
+        mood = "neutral"
+        priority = "normal"
+    else:
+        # Run Agent IMMEDIATELY for text display
+        from agents.conversation_agent import ConversationAgent
+        agent = ConversationAgent()
+        
+        sensor_text = f"Temp: {temperature}, Moisture: {moisture}, Light: {light}" if is_sensor_query else "Not requested."
+        know_text = f"{local_knowledge.biological_info} {local_knowledge.care_tips}" if local_knowledge else "No local data found."
 
-    state = {
-        "device_id": device_id,
-        "species": device.species,
-        "user_query": user_query or "Hello",
-        "sensor_analysis": sensor_text,
-        "plant_knowledge": know_text,
-        "sensor_data": {"temperature": temperature, "moisture": moisture, "light": light}
-    }
-    
-    result = await agent.run(state)
-    reply_text = result.get("conversation_response", "")
-    mood = result.get("mood", "neutral")
-    priority = result.get("priority", "normal")
+        state = {
+            "device_id": device_id,
+            "species": device.species,
+            "user_query": user_query or "Hello",
+            "sensor_analysis": sensor_text,
+            "plant_knowledge": know_text,
+            "sensor_data": {"temperature": temperature, "moisture": moisture, "light": light}
+        }
+        
+        result = await agent.run(state)
+        reply_text = result.get("conversation_response", "")
+        mood = result.get("mood", "neutral")
+        priority = result.get("priority", "normal")
 
     # 6. Create Conversation Record with full text
     convo = Conversation(
@@ -222,7 +210,9 @@ async def ingest_data(
     session.refresh(convo)
 
     # 7. Return Full JSON
-    return {
+    from fastapi import Response
+    import json
+    content = {
         "user_query": user_query,
         "reply_text": reply_text,
         "audio_url": f"/v1/audio/stream/{convo.id}",
@@ -232,6 +222,7 @@ async def ingest_data(
         },
         "id": convo.id
     }
+    return Response(content=json.dumps(content), media_type="application/json", headers={"Connection": "close"})
 
 
 @app.get("/v1/history")

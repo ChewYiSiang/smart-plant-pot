@@ -151,9 +151,9 @@ To build the physical Smart Plant Pot, you will need:
 | :--- | :--- | :--- |
 | **DS18B20 (Data)** | GPIO 4 | Requires 4.7kΩ pull-up to 3.3V |
 | **Soil Moisture (Aout)**| GPIO 1 | Analog Input (ADC1_CH0) |
-| **I2S Mic (SCK)** | GPIO 16 | Bit Clock |
-| **I2S Mic (WS)** | GPIO 15 | Word Select |
-| **I2S Mic (SD)** | GPIO 14 | Serial Data |
+| **I2S Mic (SCK)** | GPIO 12 | Safe Pin (not PSRAM) |
+| **I2S Mic (WS)** | GPIO 11 | Safe Pin (not PSRAM) |
+| **I2S Mic (SD)** | GPIO 10 | Safe Pin (not PSRAM) |
 | **MAX98357A (BCLK)** | GPIO 5 | Bit Clock |
 | **MAX98357A (LRC)** | GPIO 6 | Word Select / LR Clock |
 | **MAX98357A (DIN)** | GPIO 7 | Data In |
@@ -208,6 +208,7 @@ board_build.partitions = huge_app.csv
 #include "AudioGeneratorMP3.h"
 #include "AudioOutputI2S.h"
 #include "driver/i2s.h"
+#include "esp_heap_caps.h"
 
 
 // WiFiMulti wifiMulti; // Simplified to direct WiFi.begin for better iPhone compatibility
@@ -223,9 +224,9 @@ const char* deviceId = "s3_devkitc_plant_pot";
 #define I2S_SPEAKER_BCLK 5
 #define I2S_SPEAKER_LRC 6
 #define I2S_SPEAKER_DIN 7
-#define I2S_MIC_SD 14
-#define I2S_MIC_WS 15
-#define I2S_MIC_SCK 16
+#define I2S_MIC_SD 10
+#define I2S_MIC_WS 11
+#define I2S_MIC_SCK 12
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -242,6 +243,7 @@ AudioOutputI2S *out = NULL;
 #define BUFFER_PADDING 1024 // 1KB Safety padding for hardware "slop"
 uint8_t* audioBuffer = NULL;
 size_t audioBufferSize = (SAMPLE_RATE * 2 * RECORD_TIME) + WAV_HEADER_SIZE + BUFFER_PADDING;
+String globalAudioUrl = ""; // Persistent URL for the background streaming task
 
 // Function to generate WAV header
 void generateWavHeader(uint8_t* header, uint32_t wavDataSize) {
@@ -336,62 +338,82 @@ void sendData(float temp, float moisture, float light, uint8_t* audioData, size_
   client.print("Content-Length: " + String(totalLen) + "\r\n");
   client.print("Connection: close\r\n\r\n");
 
-  // Stream Multipart Body Segment by Segment
-  client.print(head);
-  
-  // Write audio data in chunks to be network-friendly
-  size_t chunkSize = 1024;
-  for (size_t i = 0; i < audioSize; i += chunkSize) {
-    size_t currentChunk = (audioSize - i < chunkSize) ? audioSize - i : chunkSize;
-    client.write(audioData + i, currentChunk);
-  }
-  
-  client.print(tail);
-
-  // Read response
-  Serial.println("Sent. Waiting for response...");
-  while (client.connected() && !client.available()) delay(10);
-  
-  String line = client.readStringUntil('\n');
-  if (line.indexOf("200") > 0) {
-    // Skip headers
-    while (client.connected() || client.available()) {
-      line = client.readStringUntil('\n');
-      if (line == "\r") break;
+    // 4. Send Body and FREE RAM IMMEDIATELY
+    client.print(head);
+    size_t chunkSize = 1024;
+    for (size_t i = 0; i < audioSize; i += chunkSize) {
+        size_t currentChunk = (audioSize - i < chunkSize) ? audioSize - i : chunkSize;
+        client.write(audioData + i, currentChunk);
     }
+    client.print(tail);
     
-    // Read Body line-by-line to avoid one giant memory allocation
+    // Recovery: Free the large 160KB buffer as soon as it's sent to clear RAM for playback
+    if (audioBuffer) { free(audioBuffer); audioBuffer = NULL; } 
+    Serial.println("Sent. Waiting for response...");
+
+    while (client.connected() && !client.available()) delay(10);
+    
+    String statusLine = "";
     String payload = "";
-    while (client.connected() || client.available()) {
-      if (client.available()) {
-        payload += client.readStringUntil('\n');
-      }
-      delay(1);
+    if (client.available()) {
+        statusLine = client.readStringUntil('\n');
+        if (statusLine.indexOf("200") > 0) {
+            // Skip Headers
+            while (client.available()) {
+                String line = client.readStringUntil('\n');
+                if (line == "\r") break;
+            }
+            // Read JSON body (Wait for server to close connection)
+            while (client.connected() || client.available()) {
+                if (client.available()) {
+                    payload += (char)client.read();
+                }
+            }
+        } else {
+            Serial.println("Post FAILED - Status: " + statusLine);
+        }
     }
     
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, payload);
-    if (!error) {
-        const char* audioUrl = doc["audio_url"];
-        String serverBase = "http://" + host + ":" + String(port);
-        String fullAudioUrl = serverBase + String(audioUrl);
-        Serial.printf("Plant is responding: %s\n", fullAudioUrl.c_str());
-        
-        // Stop current audio if playing
-        if (mp3 && mp3->isRunning()) mp3->stop();
-        if (file) delete file;
-        if (mp3) delete mp3;
+    if (payload.length() > 0) {
+        Serial.println("Response Payload: " + payload);
+        StaticJsonDocument<512> doc;
+        DeserializationError error = deserializeJson(doc, payload);
+        if (!error) {
+            const char* audioUrl = doc["audio_url"];
+            String serverBase = "http://" + host + ":" + String(port);
+            globalAudioUrl = serverBase + String(audioUrl); 
+            Serial.printf("Plant is responding: %s\n", globalAudioUrl.c_str());
+            
+            // --- CRITICAL: Stop current objects before new allocation ---
+            if (mp3 && mp3->isRunning()) mp3->stop();
+            if (file) { delete file; file = NULL; }
+            if (mp3) { delete mp3; mp3 = NULL; }
+            if (out) { delete out; out = NULL; }
 
-        file = new AudioFileSourceHTTPStream(fullAudioUrl.c_str());
-        mp3 = new AudioGeneratorMP3();
-        mp3->begin(file, out);
-    } else {
-        Serial.printf("JSON Parse Error: %s\n", error.c_str());
+            // Re-init Speaker output after I2S1 was used for Mic
+            out = new AudioOutputI2S();
+            out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
+            out->SetGain(0.0); // ANTI-POP
+
+            // Start playing the new response (MP3 is much better for streaming!)
+            Serial.println("Starting MP3 Playback...");
+            file = new AudioFileSourceHTTPStream(globalAudioUrl.c_str());
+            file->SetReconnect(3, 1000); // Robustness for slow hotspots
+            
+            mp3 = new AudioGeneratorMP3();
+            if (mp3->begin(file, out)) {
+                Serial.println("MP3 Pipeline Started Success.");
+            } else {
+                Serial.println("MP3 Pipeline FAILED to Start.");
+            }
+            
+            delay(200); 
+            out->SetGain(0.5); 
+        } else {
+            Serial.printf("JSON Parse Error: %s\n", error.c_str());
+        }
     }
-  } else {
-    Serial.println("Post FAILED - Status: " + line);
-  }
-  client.stop();
+    client.stop();
 }
 
 size_t recordAudio() {
@@ -417,7 +439,7 @@ size_t recordAudio() {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
         .sample_rate = SAMPLE_RATE,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, // Swapped to RIGHT to rule out driver bug
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 8,
@@ -431,25 +453,37 @@ size_t recordAudio() {
         .data_in_num = I2S_MIC_SD
     };
 
-    i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
-    i2s_set_pin(I2S_NUM_0, &pin_config);
-    i2s_zero_dma_buffer(I2S_NUM_0); // Crucial: Clear DMA before starting
+    esp_err_t err = i2s_driver_install(I2S_NUM_1, &i2s_config, 0, NULL);
+    if (err != ESP_OK) {
+        Serial.printf("I2S Driver Install Error: %d\n", err);
+        return 0;
+    }
+    i2s_set_pin(I2S_NUM_1, &pin_config);
+    i2s_zero_dma_buffer(I2S_NUM_1); // Crucial: Clear DMA before starting
 
-    Serial.println("--- RECORDING (2 Seconds) ---");
+    Serial.printf("--- RECORDING (%d Seconds) ---\n", RECORD_TIME);
     Serial.println("Speak now...");
     
     size_t bytes_read;
     uint32_t startTime = millis();
     int offset = WAV_HEADER_SIZE;
     int32_t raw_sample;
+    int debugCount = 0;
+
     while (millis() - startTime < (RECORD_TIME * 1000)) {
         if (offset + 2 >= audioBufferSize - BUFFER_PADDING) break;
 
-        i2s_read(I2S_NUM_0, &raw_sample, 4, &bytes_read, portMAX_DELAY);
+        i2s_read(I2S_NUM_1, &raw_sample, 4, &bytes_read, portMAX_DELAY);
         
         // Use the top 16 bits of the 32-bit word (most robust for 24-bit INMP441)
         int16_t sample = (raw_sample >> 16); 
         
+        // --- DEBUG: Print first 10 samples to check for signal ---
+        if (debugCount < 10 && bytes_read > 0) {
+            Serial.printf("Raw: 0x%08X | Sample: %d\n", raw_sample, sample);
+            debugCount++;
+        }
+
         audioBuffer[offset] = sample & 0xFF;
         audioBuffer[offset+1] = (sample >> 8) & 0xFF;
         offset += 2;
@@ -458,8 +492,13 @@ size_t recordAudio() {
     // 4. Update WAV Header with EXACT size recorded
     generateWavHeader(audioBuffer, offset - WAV_HEADER_SIZE);
 
-    i2s_driver_uninstall(I2S_NUM_0); // Release I2S0 for Speaker
+    // Shutdown Mic I2S
+    i2s_stop(I2S_NUM_1);
+    i2s_driver_uninstall(I2S_NUM_1); // Release I2S1 for Speaker
+    
     Serial.println("Recording Finished.");
+    Serial.println("Stabilizing Radio for 1s...");
+    delay(1000); // BREATHING ROOM: Allow radio to recover from I2S high-speed clocks
     return offset;
 }
 
@@ -544,7 +583,9 @@ void setup() {
   // sensors.begin(); // Disabled for now
   out = new AudioOutputI2S();
   out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
-  out->SetGain(0.5); // Equivalent to volume 12/64 approx
+  out->SetGain(0.0); // ANTI-POP: Build up clocks first
+  delay(100);
+  out->SetGain(0.5); 
 }
 
 void loop() {
@@ -559,10 +600,9 @@ void loop() {
     size_t actualSize = recordAudio(); // Now returns the recorded payload size
     if (actualSize > WAV_HEADER_SIZE) {
         Serial.println("Stabilizing WiFi before send...");
-        delay(1000); // BREATHER: Let radio hardware settle after I2S capture
+        delay(1000); 
         sendData(temp, moisture, 5.0, audioBuffer, actualSize);
-        free(audioBuffer); // Release RAM immediately!
-        audioBuffer = NULL;
+        // Memory is now freed inside sendData() for faster recovery
     }
     // Re-init Speaker output if needed (handled by next play)
   }
