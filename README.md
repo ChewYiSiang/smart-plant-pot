@@ -244,6 +244,7 @@ AudioOutputI2S *out = NULL;
 uint8_t* audioBuffer = NULL;
 size_t audioBufferSize = (SAMPLE_RATE * 2 * RECORD_TIME) + WAV_HEADER_SIZE + BUFFER_PADDING;
 String globalAudioUrl = ""; // Persistent URL for the background streaming task
+bool isPlaying = false; // Flag to prevent re-triggering during playback
 
 // Function to generate WAV header
 void generateWavHeader(uint8_t* header, uint32_t wavDataSize) {
@@ -396,19 +397,25 @@ void sendData(float temp, float moisture, float light, uint8_t* audioData, size_
             out->SetGain(0.0); // ANTI-POP
 
             // Start playing the new response (MP3 is much better for streaming!)
-            Serial.println("Starting MP3 Playback...");
+            Serial.printf("--- INITIATING GET REQUEST: %s ---\n", globalAudioUrl.c_str());
             file = new AudioFileSourceHTTPStream(globalAudioUrl.c_str());
-            file->SetReconnect(3, 1000); // Robustness for slow hotspots
+            // CRITICAL: Disable auto-reconnect. 
+            // We rely on the PRE-GENERATED 'hmm.mp3' for instant data. 
+            // If connection drops, we accept it (better than looping).
+            file->SetReconnect(0, 0); 
             
             mp3 = new AudioGeneratorMP3();
             if (mp3->begin(file, out)) {
                 Serial.println("MP3 Pipeline Started Success.");
+                isPlaying = true; // Block recording until this finished
             } else {
                 Serial.println("MP3 Pipeline FAILED to Start.");
+                isPlaying = false; 
             }
             
             delay(200); 
             out->SetGain(0.5); 
+            Serial.println("DEBUG: Gain set to 0.5");
         } else {
             Serial.printf("JSON Parse Error: %s\n", error.c_str());
         }
@@ -596,22 +603,34 @@ void loop() {
   int moistureRaw = analogRead(MOISTURE_PIN);
   float moisture = map(moistureRaw, 3000, 1000, 0, 100);
 
-  if (Serial.available() && Serial.read() == 's') {
-    size_t actualSize = recordAudio(); // Now returns the recorded payload size
-    if (actualSize > WAV_HEADER_SIZE) {
-        Serial.println("Stabilizing WiFi before send...");
-        delay(1000); 
-        sendData(temp, moisture, 5.0, audioBuffer, actualSize);
-        // Memory is now freed inside sendData() for faster recovery
+  if (Serial.available() && !isPlaying) {
+    if (Serial.read() == 's') {
+      size_t actualSize = recordAudio(); // Now returns the recorded payload size
+      if (actualSize > WAV_HEADER_SIZE) {
+          Serial.println("Stabilizing WiFi before send...");
+          delay(1000); 
+          sendData(temp, moisture, 5.0, audioBuffer, actualSize);
+          // Memory is now freed inside sendData() for faster recovery
+      }
+      // Flush any accidental extra 's' presses during recording/sending
+      while(Serial.available()) Serial.read(); 
     }
-    // Re-init Speaker output if needed (handled by next play)
   }
 
-  if (mp3 && mp3->isRunning()) {
-    if (!mp3->loop()) {
-      mp3->stop();
-      Serial.println("Playback finished.");
-    }
+  // [FIXED] Proper Loop Handling
+  if (isPlaying && mp3 && mp3->isRunning()) {
+      // Feed the MP3 decoder as fast as possible
+      if (!mp3->loop()) {
+          Serial.println("Playback finished. Cleaning up objects.");
+          mp3->stop();
+          delete mp3; mp3 = NULL;
+          if (file) { delete file; file = NULL; }
+          if (out) out->SetGain(0.0); // ANTI-POP
+          isPlaying = false; // Allow recording again
+          delay(1000); // 1s Debounce: Wait for radio noise to settle
+          while(Serial.available()) Serial.read(); // Clear any 's' pressed during play
+          Serial.println("--- READY FOR NEXT TALK ('s' to start) ---");
+      }
   }
 }
 ```

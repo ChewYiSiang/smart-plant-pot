@@ -14,10 +14,26 @@ from config import get_settings
 async def lifespan(app: FastAPI):
     # Initialize database on startup
     init_db()
-    # Ensure storage path exists
+    
+    # Ensure storage paths exist
     settings = get_settings()
-    if not os.path.exists(settings.STORAGE_PATH):
-        os.makedirs(settings.STORAGE_PATH)
+    backchannel_dir = os.path.join(settings.STORAGE_PATH, "backchannels")
+    os.makedirs(backchannel_dir, exist_ok=True)
+    os.makedirs(settings.STORAGE_PATH, exist_ok=True)
+
+    # Pre-generate "Hmm" backchannel if missing (Crucial for low-latency header delivery)
+    hmm_path = os.path.join(backchannel_dir, "hmm.mp3")
+    if not os.path.exists(hmm_path):
+        print("DEBUG: Generating warm-up audio (hmm.mp3)...")
+        from services.speech_synthesis import SpeechSynthesisService
+        tts = SpeechSynthesisService()
+        try:
+            # We use a slightly longer pause to buffer the stream
+            await tts.synthesize("Hmm...", hmm_path) 
+            print("DEBUG: hmm.mp3 generated successfully.")
+        except Exception as e:
+            print(f"WARNING: Could not generate hmm.mp3: {e}")
+
     yield
 
 app = FastAPI(title="Smart Plant Pot Backend", lifespan=lifespan)
@@ -91,7 +107,7 @@ async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
     async def audio_stream_generator():
         tts = SpeechSynthesisService()
         
-        # 1. Backchannel
+        # 1. Backchannel (Crucial for preventing ESP32 stream timeouts)
         query_text = (convo.transcription or "").lower()
         keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care", "how are you"]
         is_sensor_query = any(k in query_text for k in keywords_sensors)
@@ -100,10 +116,15 @@ async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
             backchannel_dir = os.path.join("audio_artifacts", "backchannels")
             hmm_path = os.path.join(backchannel_dir, "hmm.mp3") 
             if os.path.exists(hmm_path):
+                print(f"DEBUG: Streaming backchannel from {hmm_path}")
                 with open(hmm_path, "rb") as f:
-                    yield f.read()
+                    data = f.read()
+                    print(f"DEBUG: Yielding {len(data)} bytes of backchannel")
+                    yield data
             else:
-                yield await tts.synthesize_stream("Hmm...")
+                sent = await tts.synthesize_stream("Hmm...")
+                print(f"DEBUG: Yielding {len(sent)} bytes of generated backchannel")
+                yield sent
 
         # 2. Sentences
         import re
@@ -111,7 +132,10 @@ async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
         sentences = re.split(r'(?<=[.!?]) +', reply_text)
         for sentence in sentences:
             if sentence.strip():
-                yield await tts.synthesize_stream(sentence)
+                print(f"DEBUG: Synthesizing sentence: {sentence[:20]}...")
+                audio = await tts.synthesize_stream(sentence)
+                print(f"DEBUG: Yielding {len(audio)} bytes of sentence")
+                yield audio
 
     from fastapi.responses import StreamingResponse
     return StreamingResponse(audio_stream_generator(), media_type="audio/mpeg")
