@@ -193,7 +193,40 @@ async def ingest_data(
         session.add(device)
         session.commit()
     
-    # 2. Save sensor reading
+    # 0. Handle Sensor Data Prioritization (Physical Pot vs Simulator)
+    used_hardware_data = False
+    if device_id == "pot_simulator_001":
+        from datetime import datetime, timedelta
+        from sqlalchemy import select
+        ten_mins_ago = datetime.utcnow() - timedelta(minutes=10)
+        statement = select(SensorReading).where(
+            SensorReading.device_id == "s3_devkitc_plant_pot",
+            SensorReading.timestamp >= ten_mins_ago
+        ).order_by(SensorReading.timestamp.desc()).limit(1)
+        
+        recent_reading = session.exec(statement).first()
+        if recent_reading:
+            print(f"DEBUG: Found recent hardware reading. Overriding simulator sliders.")
+            temperature = recent_reading.temperature
+            moisture = recent_reading.moisture
+            light = recent_reading.light
+            used_hardware_data = True
+
+    # 1. Log Raw Data for Verification
+    source_label = "[LIVE SENSORS]" if device_id == "s3_devkitc_plant_pot" else "[SIMULATOR]"
+    if used_hardware_data:
+        source_label = "[SIMULATOR + HW OVERRIDE]"
+        
+    print(f"\n--- [INGEST] {source_label} Source: {device_id} ---")
+    if used_hardware_data:
+        print(f"  ℹ️  Using live data from physical pot (s3_devkitc_plant_pot)")
+    print(f"  🌡️ Temperature: {temperature:.1f}°C")
+    print(f"  💧 Moisture:    {moisture:.1f}%")
+    print(f"  ☀️ Light:       {light:.1f}%")
+    print(f"  ✨ Event:       {event or 'None'}")
+    print(f"-----------------------------------\n")
+
+    # 1. Create Sensor Reading Record
     reading = SensorReading(device_id=device_id, temperature=temperature, moisture=moisture, light=light, event=event)
     session.add(reading)
     

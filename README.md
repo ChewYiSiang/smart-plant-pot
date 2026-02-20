@@ -160,8 +160,16 @@ To build the physical Smart Plant Pot, you will need:
 
 ### 2. Assembly Steps
 1. **Power**: Connect 3.3V and GND from the ESP32-S3 to all sensors. The MAX98357A can be connected to the 5V pin for higher volume.
-2. **Sensors**: Place the DS18B20 (Temperature) and Soil Moisture sensor in the pot.
+2. **Sensors**: 
+   - **DHT11 (Temp/Humidity)**: Connect VCC to 3.3V, GND to GND, and Data to **GPIO 4**.
+   - **Moisture**: Connect VCC to 3.3V, GND to GND, and **AUOT (Analog Out)** to **GPIO 1**.
 3. **Small Form Factor**: The DevKitC-1 is larger than the Super Mini, so ensure your enclosure has adequate space.
+
+### 2.1 Moisture Sensor Calibration
+Cpacitive sensors vary. To calibrate:
+1. Hold the sensor in the air (Dry) and note the `Raw` value in Serial Monitor.
+2. Dip the sensor in water (Wet) and note the `Raw` value.
+3. Update the `map(moistureRaw, DRY_VAL, WET_VAL, 0, 100)` in your code. (Default is 3000 dry, 1000 wet).
 
 ### 3. ESP32 PlatformIO Project
 
@@ -180,9 +188,10 @@ lib_deps =
     earlephilhower/ESP8266Audio @ ^1.9.7
     WiFi
     HTTPClient
-    paulstoffregen/OneWire @ ^2.3.7
-    milesburton/DallasTemperature @ ^3.9.1
     bblanchon/ArduinoJson @ ^6.21.3
+    esphome/ESP32-audioI2S @ ^2.0.7
+    adafruit/DHT sensor library @ 1.4.6
+    adafruit/Adafruit Unified Sensor @ 1.1.14
 build_flags =
     -D CORE_DEBUG_LEVEL=3
     -D ARDUINO_USB_MODE=1
@@ -201,8 +210,7 @@ board_build.partitions = huge_app.csv
 #include <WiFiMulti.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
+#include <DHT.h>
 #include <esp_wifi.h>
 #include "AudioFileSourceHTTPStream.h"
 #include "AudioGeneratorMP3.h"
@@ -219,7 +227,8 @@ const char* serverUrl = "http://172.20.10.4:8000/v1/ingest";
 const char* deviceId = "s3_devkitc_plant_pot";
 
 // --- PINS (Optimized for S3 DevKitC-1) ---
-#define ONE_WIRE_BUS 4
+#define DHTPIN 4
+#define DHTTYPE DHT11
 #define MOISTURE_PIN 1
 #define I2S_SPEAKER_BCLK 5
 #define I2S_SPEAKER_LRC 6
@@ -228,8 +237,11 @@ const char* deviceId = "s3_devkitc_plant_pot";
 #define I2S_MIC_WS 11
 #define I2S_MIC_SCK 12
 
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
+DHT dht(DHTPIN, DHTTYPE);
+unsigned long lastDhtReadTime = 0;
+const unsigned long dhtInterval = 3000; // DHT11 needs 2-3s
+float temp = 25.0;      // Persistent sensor values
+float humidity = 50.0;
 
 // --- AUDIO OBJECTS ---
 AudioGeneratorMP3 *mp3 = NULL;
@@ -287,8 +299,10 @@ void checkExternalAudio() {
   WiFiClient client;
   HTTPClient http;
   
-  // Use your laptop's IP here (matching serverUrl)
-  String pollUrl = "http://172.20.10.4:8000/v1/device/s3_devkitc_plant_pot/poll";
+  // Use the IP from serverUrl to keep it consistent
+  String serverBase = String(serverUrl).substring(0, String(serverUrl).indexOf("/v1/ingest"));
+  String pollUrl = serverBase + "/v1/device/" + String(deviceId) + "/poll";
+  
   http.begin(client, pollUrl);
   int httpCode = http.GET();
   
@@ -299,11 +313,9 @@ void checkExternalAudio() {
     
     if (!doc["convo_id"].isNull()) {
       const char* audioUrl = doc["audio_url"];
-      Serial.printf("External request received: %s\n", audioUrl);
+      Serial.printf("\n[Simulator] Request received: %s\n", audioUrl);
       
-      String host = "172.20.10.4"; // Your laptop IP
-      int port = 8000;
-      String serverBase = "http://" + host + ":" + String(port);
+      // serverBase is already calculated above
       globalAudioUrl = serverBase + String(audioUrl);
       
       if (mp3 && mp3->isRunning()) mp3->stop();
@@ -564,6 +576,9 @@ void setup() {
   Serial.println("\n\n[BOOT] Smart Plant Pot Starting...");
   Serial.printf("[BOOT] Initial Free Heap: %u bytes\n", ESP.getFreeHeap());
   
+  // Initialize DHT sensor
+  dht.begin();
+
   // --- CRITICAL: Stabilize radio BEFORE connection ---
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);    // Disable power save to prevent AUTH_EXPIRE
@@ -579,15 +594,11 @@ void setup() {
   Serial.printf("Free Heap: %u bytes\n", ESP.getFreeHeap());
 
   // --- Scan available networks (Disabled for speed) ---
-  /*
-  Serial.println("Scanning WiFi networks...");
-  int n = WiFi.scanNetworks();
-  ...
-  */
+  Serial.println("WiFi Scan skipped for speed.");
 
   // --- Configure WiFi ---
   Serial.println("\n=== WiFi Connection Attempt ===");
-  WiFi.disconnect(true); // Wipe any stale settings
+  WiFi.disconnect(true);
   delay(500);
 
   Serial.print("Connecting to: '"); Serial.print(hotspot_ssid);
@@ -644,12 +655,28 @@ void setup() {
 }
 
 void loop() {
-  // sensors.requestTemperatures(); // Disabled for now
-  // float temp = sensors.getTempCByIndex(0); // Disabled for now
-  float temp = 25.0; // Fixed placeholder value
-  
+  // Read Sensors (Only every 3 seconds)
+  // temp and humidity are now global variables
+
+  if (millis() - lastDhtReadTime > dhtInterval) {
+    lastDhtReadTime = millis();
+    temp = dht.readTemperature();
+    humidity = dht.readHumidity();
+    
+    Serial.print("Raw Temp: "); Serial.println(temp);
+    Serial.print("Raw Humidity: "); Serial.println(humidity);
+    
+    if (isnan(temp) || isnan(humidity)) {
+      Serial.println("❌ FAILED to read from DHT sensor! Check wiring.");
+      temp = 25.0;
+    } else {
+      Serial.println("✅ DHT11 Read Success");
+    }
+  }
+
   int moistureRaw = analogRead(MOISTURE_PIN);
   float moisture = map(moistureRaw, 3000, 1000, 0, 100);
+  moisture = constrain(moisture, 0, 100); 
 
   // Poll for external audio requests (e.g. from simulator)
   if (millis() - lastPollTime > pollInterval) {
