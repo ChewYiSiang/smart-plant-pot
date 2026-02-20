@@ -245,6 +245,8 @@ uint8_t* audioBuffer = NULL;
 size_t audioBufferSize = (SAMPLE_RATE * 2 * RECORD_TIME) + WAV_HEADER_SIZE + BUFFER_PADDING;
 String globalAudioUrl = ""; // Persistent URL for the background streaming task
 bool isPlaying = false; // Flag to prevent re-triggering during playback
+unsigned long lastPollTime = 0;
+const unsigned long pollInterval = 3000; // Poll every 3 seconds
 
 // Function to generate WAV header
 void generateWavHeader(uint8_t* header, uint32_t wavDataSize) {
@@ -277,6 +279,52 @@ String getWiFiStatus(wl_status_t status) {
     case WL_NO_SHIELD:          return "WL_NO_SHIELD";
     default:                    return "UNKNOWN_STATUS";
   }
+}
+
+void checkExternalAudio() {
+  if (isPlaying || audioBuffer != NULL) return; // Don't poll while busy/recording
+
+  WiFiClient client;
+  HTTPClient http;
+  
+  // Use your laptop's IP here (matching serverUrl)
+  String pollUrl = "http://172.20.10.4:8000/v1/device/s3_devkitc_plant_pot/poll";
+  http.begin(client, pollUrl);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    StaticJsonDocument<256> doc;
+    deserializeJson(doc, payload);
+    
+    if (!doc["convo_id"].isNull()) {
+      const char* audioUrl = doc["audio_url"];
+      Serial.printf("External request received: %s\n", audioUrl);
+      
+      String host = "172.20.10.4"; // Your laptop IP
+      int port = 8000;
+      String serverBase = "http://" + host + ":" + String(port);
+      globalAudioUrl = serverBase + String(audioUrl);
+      
+      if (mp3 && mp3->isRunning()) mp3->stop();
+      if (file) { delete file; file = NULL; }
+      if (mp3) { delete mp3; mp3 = NULL; }
+      if (out) { delete out; out = NULL; }
+
+      out = new AudioOutputI2S();
+      out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
+      out->SetGain(0.0);
+      file = new AudioFileSourceHTTPStream(globalAudioUrl.c_str());
+      file->SetReconnect(0, 0); 
+      mp3 = new AudioGeneratorMP3();
+      if (mp3->begin(file, out)) {
+          isPlaying = true;
+          delay(200);
+          out->SetGain(0.5);
+      }
+    }
+  }
+  http.end();
 }
 
 void sendData(float temp, float moisture, float light, uint8_t* audioData, size_t audioSize) {
@@ -602,6 +650,12 @@ void loop() {
   
   int moistureRaw = analogRead(MOISTURE_PIN);
   float moisture = map(moistureRaw, 3000, 1000, 0, 100);
+
+  // Poll for external audio requests (e.g. from simulator)
+  if (millis() - lastPollTime > pollInterval) {
+    lastPollTime = millis();
+    checkExternalAudio();
+  }
 
   if (Serial.available() && !isPlaying) {
     if (Serial.read() == 's') {

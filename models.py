@@ -7,6 +7,7 @@ class Device(SQLModel, table=True):
     name: str
     species: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    pending_audio_id: Optional[int] = Field(default=None) # Track external audio to play
     
     readings: List["SensorReading"] = Relationship(back_populates="device")
     conversations: List["Conversation"] = Relationship(back_populates="device")

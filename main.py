@@ -279,10 +279,33 @@ async def ingest_data(
         },
         "id": convo.id
     }
+    # 8. Flag Physical Device for Audio if this is a simulator query
+    # The user wants simulator queries to play on the physical speaker as a backup.
+    if device_id == "pot_simulator_001":
+        # Target the physical device (s3_devkitc_plant_pot)
+        physical_device = session.get(Device, "s3_devkitc_plant_pot")
+        if physical_device:
+            physical_device.pending_audio_id = convo.id
+            session.add(physical_device)
+            session.commit()
+            print(f"DEBUG: Flagged physical device 's3_devkitc_plant_pot' with pending audio {convo.id}")
+
     return Response(content=json.dumps(content), media_type="application/json", headers={"Connection": "close"})
 
-
-@app.get("/v1/history")
+@app.get("/v1/device/{device_id}/poll")
+async def poll_for_audio(device_id: str, session: Session = Depends(get_session)):
+    """Polling endpoint for the ESP32 to check for pending audio streams (e.g. from simulator)."""
+    device = session.get(Device, device_id)
+    if not device or device.pending_audio_id is None:
+        return {"convo_id": None}
+    
+    convo_id = device.pending_audio_id
+    # Clear the flag immediately after serving
+    device.pending_audio_id = None
+    session.add(device)
+    session.commit()
+    
+    return {"convo_id": convo_id, "audio_url": f"/v1/audio/stream/{convo_id}"}
 async def get_history(device_id: str = "pot_simulator_001", session: Session = Depends(get_session)):
     statement = select(Conversation).where(Conversation.device_id == device_id).order_by(Conversation.timestamp.desc()).limit(10)
     results = session.exec(statement).all()
