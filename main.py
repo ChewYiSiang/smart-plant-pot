@@ -105,37 +105,70 @@ async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Conversation not found")
     
     async def audio_stream_generator():
+        import asyncio
+        import re
         tts = SpeechSynthesisService()
         
-        # 1. Backchannel (Crucial for preventing ESP32 stream timeouts)
-        query_text = (convo.transcription or "").lower()
-        keywords_sensors = ["light", "moisture", "water", "temperature", "temp", "hungry", "health", "care", "how are you"]
-        is_sensor_query = any(k in query_text for k in keywords_sensors)
+        # Audio gain adjustment (-1.5dB for clarity without loudness loss)
+        VOL_GAIN = -1.5
+        CHUNK_SIZE = 4096 # Slightly larger chunks for better throughput
         
-        if not is_sensor_query:
-            backchannel_dir = os.path.join("audio_artifacts", "backchannels")
-            hmm_path = os.path.join(backchannel_dir, "hmm.mp3") 
-            if os.path.exists(hmm_path):
-                print(f"DEBUG: Streaming backchannel from {hmm_path}")
-                with open(hmm_path, "rb") as f:
-                    data = f.read()
-                    print(f"DEBUG: Yielding {len(data)} bytes of backchannel")
-                    yield data
-            else:
-                sent = await tts.synthesize_stream("Hmm...")
-                print(f"DEBUG: Yielding {len(sent)} bytes of generated backchannel")
-                yield sent
-
-        # 2. Sentences
-        import re
         reply_text = convo.ai_response or ""
-        sentences = re.split(r'(?<=[.!?]) +', reply_text)
-        for sentence in sentences:
-            if sentence.strip():
-                print(f"DEBUG: Synthesizing sentence: {sentence[:20]}...")
-                audio = await tts.synthesize_stream(sentence)
-                print(f"DEBUG: Yielding {len(audio)} bytes of sentence")
-                yield audio
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?]) +', reply_text) if s.strip()]
+        print(f"DEBUG: Found {len(sentences)} sentences to synthesize.")
+        
+        queue = asyncio.Queue(maxsize=3)
+
+        async def producer():
+            """Synthesizes sentences in the background."""
+            try:
+                for i, sentence in enumerate(sentences):
+                    # Add a small text tail to ensure the TTS generates enough audio/silence at the end 
+                    # to prevent the ESP32 decoder from cutting off the last words.
+                    padded_sentence = f"{sentence} . . ."
+                    print(f"DEBUG: [Producer] Synthesizing sentence {i+1}/{len(sentences)}: {sentence[:30]}...")
+                    audio = await tts.synthesize_stream(padded_sentence, volume_gain_db=VOL_GAIN)
+                    if audio:
+                        print(f"DEBUG: [Producer] Sentence {i+1} synthesized successfully ({len(audio)} bytes).")
+                        await queue.put(audio)
+                    else:
+                        print(f"DEBUG: [Producer] Sentence {i+1} returned NO AUDIO.")
+            except Exception as e:
+                print(f"ERROR: [Producer] Failed during synthesis: {e}")
+            finally:
+                print("DEBUG: [Producer] Putting sentinel None into queue.")
+                await queue.put(None)
+
+        # START SYNTHESIS IMMEDIATELY (Concurrent with backchannel)
+        producer_task = asyncio.create_task(producer())
+
+        try:
+            # 1. Sentences from Queue
+            while True:
+                print("DEBUG: [Streamer] Waiting for audio/sentinel from queue...")
+                audio = await queue.get()
+                if audio is None:
+                    print("DEBUG: [Streamer] Sentinel received. Ending stream.")
+                    break
+                
+                print(f"DEBUG: [Streamer] Yielding sentence in {CHUNK_SIZE}b chunks")
+                for i in range(0, len(audio), CHUNK_SIZE):
+                    yield audio[i:i + CHUNK_SIZE]
+                    await asyncio.sleep(0.01) 
+                
+                # Small pause between synthesized sentences to help the hardware decoder sync
+                await asyncio.sleep(0.1) 
+            
+            # 3. Final Flush (Ensures the ESP32 consumes the very last bits of data)
+            print("DEBUG: [Streamer] Final flush.")
+            yield b"\x00" * 2048
+            await asyncio.sleep(0.5)
+
+        except Exception as e:
+            print(f"ERROR: [Streamer] Stream interrupted: {e}")
+        finally:
+            print("DEBUG: [Streamer] Cleaning up producer task.")
+            producer_task.cancel()
 
     from fastapi.responses import StreamingResponse
     return StreamingResponse(audio_stream_generator(), media_type="audio/mpeg")

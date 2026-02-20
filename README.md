@@ -125,7 +125,7 @@ Try asking these questions to see how the agents coordinate:
 
 1. **API Connectivity**: Confirm the server responds to `/health` with `status: healthy`.
 2. **STT Accuracy**: Verify your speech is correctly transcribed in the server logs.
-3. **Audio Streaming**: Ensure the audio starts with a verbal backchannel ("Hmm...") and flows smoothly sentence-by-sentence.
+3. **Audio Streaming**: Optimized for clarity and low latency. The backend uses a pre-synthesis queue to eliminate gaps between sentences and disables muffled "small-speaker" profiles for crisper voice output.
 4. **Ideal vs. Reality Logic**: Ask "How are you feeling?" or "Are you getting enough light?" and verify the plant states its botanical ideal before its current sensor reading.
 
 ## Project Structure
