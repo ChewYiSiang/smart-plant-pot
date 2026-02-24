@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import FastAPI, Depends, Request, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse
 from sqlmodel import Session, select, or_
 from services.streaming_manager import streaming_manager
 from models import init_db, get_engine, Conversation, Device, SensorReading

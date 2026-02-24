@@ -254,7 +254,7 @@ AudioFileSourceHTTPStream *file = NULL;
 AudioOutputI2S *out = NULL;
 
 // --- AUDIO CAPTURE SETTINGS ---
-#define SAMPLE_RATE 22050
+#define SAMPLE_RATE 16000
 #define RECORD_TIME 5 // Seconds (S3 can easily handle 5-10s with Dual Core/PSRAM)
 #define WAV_HEADER_SIZE 44
 #define BUFFER_PADDING 1024 // 1KB Safety padding for hardware "slop"
@@ -421,7 +421,7 @@ void checkExternalAudio() {
       if (success) {
           isPlaying = true;
           delay(200);
-          out->SetGain(1.0); 
+          out->SetGain(0.8); 
           Serial.println("[Success] Notification Playback Started.");
       }
     }
@@ -567,8 +567,8 @@ void sendData(float temp, float moisture, float light, uint8_t* audioData, size_
             }
             
             delay(200); 
-            out->SetGain(1.0); 
-            Serial.println("DEBUG: Gain set to 1.0 (Full Heritage Power)");
+            out->SetGain(0.8); 
+            Serial.println("DEBUG: Gain set to 0.8");
         } else {
             Serial.printf("JSON Parse Error: %s\n", error.c_str());
         }

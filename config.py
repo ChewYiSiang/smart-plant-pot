@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     STORAGE_PATH: str = "./audio_artifacts"
     
     # Hardware/Audio Configuration
-    AUDIO_SAMPLE_RATE: int = 22050 # Articulate standard for voice clarity
+    AUDIO_SAMPLE_RATE: int = 16000 # use 16000 which is optimized for ESP32 I2S
     AUDIO_CHANNELS: int = 1          # Mono
     AUDIO_BIT_DEPTH: int = 16       # 16-bit PCM
     WAKE_WORD: str = "hey plant"

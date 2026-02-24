@@ -15,26 +15,26 @@ class SpeechSynthesisService:
         text: str, 
         output_path: str, 
         volume_gain_db: float = 0.0,
-        speaking_rate: float = 0.88,
-        pitch: float = 1.0
+        speaking_rate: float = 0.95,
+        pitch: float = 0.0
     ):
         """Synthesizes text to an MP3 file using Google Cloud TTS as plain text."""
         synthesis_input = texttospeech.SynthesisInput(text=text)
 
-        # [ARTICULATE] Neural2-E is the sharpest biting voice
+        # Build the voice request - Neural2 is crisp and clear for hardware
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
-            name="en-US-Neural2-E"
+            name="en-US-Neural2-F"
         )
 
-        # [TELEPHONY] Using telephony-class-application to force clarity over bass
+        # Select the type of audio file you want returned
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
             volume_gain_db=volume_gain_db, 
             speaking_rate=speaking_rate,
             pitch=pitch,
-            sample_rate_hertz=22050,
-            effects_profile_id=["telephony-class-application"]
+            sample_rate_hertz=16000,
+            effects_profile_id=["small-bluetooth-speaker-class-device"]
         )
 
         # Perform the text-to-speech request
@@ -54,8 +54,8 @@ class SpeechSynthesisService:
         self, 
         text: str, 
         volume_gain_db: float = 0.0,
-        speaking_rate: float = 0.88,
-        pitch: float = 1.0
+        speaking_rate: float = 0.95,
+        pitch: float = 0.0
     ) -> bytes:
         """Synthesizes text and returns raw audio bytes (MP3) as plain text."""
         print(f"DEBUG: [TTS] Synthesizing plain text: {text[:50]}...")
@@ -63,7 +63,7 @@ class SpeechSynthesisService:
         
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
-            name="en-US-Neural2-E"
+            name="en-US-Neural2-F"
         )
         
         audio_config = texttospeech.AudioConfig(
@@ -71,8 +71,8 @@ class SpeechSynthesisService:
             volume_gain_db=volume_gain_db,
             speaking_rate=speaking_rate,
             pitch=pitch,
-            sample_rate_hertz=22050,
-            effects_profile_id=["telephony-class-application"]
+            sample_rate_hertz=16000,
+            effects_profile_id=["small-bluetooth-speaker-class-device"]
         )
         
         response = self.client.synthesize_speech(
