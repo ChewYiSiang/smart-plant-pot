@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import FastAPI, Depends, Request, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse
 from sqlmodel import Session, select, or_
 from services.streaming_manager import streaming_manager
 from models import init_db, get_engine, Conversation, Device, SensorReading
@@ -102,6 +102,81 @@ async def archive_conversation_task(device_id: str, transcription: str, ai_respo
             session.commit()
     except Exception as e:
         print(f"DEBUG: Archiver failed: {e}")
+
+@app.get("/v1/audio/stream/{convo_id}")
+async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
+    convo = session.get(Conversation, convo_id)
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    async def audio_stream_generator():
+        import asyncio
+        import re
+        tts = SpeechSynthesisService()
+        
+        # Audio gain adjustment (-1.5dB for clarity without loudness loss)
+        VOL_GAIN = 0.0
+        CHUNK_SIZE = 4096 # Slightly larger chunks for better throughput
+        
+        reply_text = convo.ai_response or ""
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?]) +', reply_text) if s.strip()]
+        print(f"DEBUG: Found {len(sentences)} sentences to synthesize.")
+        
+        queue = asyncio.Queue(maxsize=3)
+
+        async def producer():
+            """Synthesizes sentences in the background."""
+            try:
+                for i, sentence in enumerate(sentences):
+                    # Add a small text tail to ensure the TTS generates enough audio/silence at the end 
+                    # to prevent the ESP32 decoder from cutting off the last words.
+                    padded_sentence = f"{sentence} . . ."
+                    print(f"DEBUG: [Producer] Synthesizing sentence {i+1}/{len(sentences)}: {sentence[:30]}...")
+                    audio = await tts.synthesize_stream(padded_sentence, volume_gain_db=VOL_GAIN)
+                    if audio:
+                        print(f"DEBUG: [Producer] Sentence {i+1} synthesized successfully ({len(audio)} bytes).")
+                        await queue.put(audio)
+                    else:
+                        print(f"DEBUG: [Producer] Sentence {i+1} returned NO AUDIO.")
+            except Exception as e:
+                print(f"ERROR: [Producer] Failed during synthesis: {e}")
+            finally:
+                print("DEBUG: [Producer] Putting sentinel None into queue.")
+                await queue.put(None)
+
+        # START SYNTHESIS IMMEDIATELY (Concurrent with backchannel)
+        producer_task = asyncio.create_task(producer())
+
+        try:
+            # 1. Sentences from Queue
+            while True:
+                print("DEBUG: [Streamer] Waiting for audio/sentinel from queue...")
+                audio = await queue.get()
+                if audio is None:
+                    print("DEBUG: [Streamer] Sentinel received. Ending stream.")
+                    break
+                
+                print(f"DEBUG: [Streamer] Yielding sentence in {CHUNK_SIZE}b chunks")
+                for i in range(0, len(audio), CHUNK_SIZE):
+                    yield audio[i:i + CHUNK_SIZE]
+                    await asyncio.sleep(0.01) 
+                
+                # Small pause between synthesized sentences to help the hardware decoder sync
+                await asyncio.sleep(0.1) 
+            
+            # 3. Final Flush (Ensures the ESP32 consumes the very last bits of data)
+            print("DEBUG: [Streamer] Final flush.")
+            yield b"\x00" * 2048
+            await asyncio.sleep(0.5)
+
+        except Exception as e:
+            print(f"ERROR: [Streamer] Stream interrupted: {e}")
+        finally:
+            print("DEBUG: [Streamer] Cleaning up producer task.")
+            producer_task.cancel()
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(audio_stream_generator(), media_type="audio/mpeg")
 
 @app.post("/v1/ingest")
 async def ingest_v1(
