@@ -23,7 +23,7 @@ class TranscriptionService:
         is_webm = b"webm" in content[:2000] or content.startswith(b"\x1a\x45\xdf\xa3")
         is_wav = b"RIFF" in content[:100] and b"WAVE" in content[:100]
         
-        detected_rate = 16000 # Default fallback
+        detected_rate = 16000 # Heritage fallback
         
         if is_webm:
             encoding = speech.RecognitionConfig.AudioEncoding.WEBM_OPUS
@@ -50,6 +50,7 @@ class TranscriptionService:
             language_code="en-US",
         )
 
+        print(f"DEBUG STT: Sending to Google with rate {detected_rate}Hz and encoding {encoding}")
         response = self.client.recognize(config=config, audio=audio)
 
         for result in response.results:

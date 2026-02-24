@@ -127,7 +127,7 @@ async function startRecording() {
 
         recordBtn.classList.add('recording');
         recordBtn.querySelector('.label').innerText = 'Release to Activate...';
-        statusBadge.innerText = 'Listening (32kHz)...';
+        statusBadge.innerText = 'Listening (16kHz)...';
         console.log("Recording started.");
     } catch (err) {
         console.error("Failed to start recording:", err);
@@ -172,7 +172,7 @@ async function stopRecording() {
 
         recordBtn.classList.remove('recording');
         recordBtn.querySelector('.label').innerText = 'Simulate "Hey Plant"';
-        statusBadge.innerText = 'Analyzing (32kHz)...';
+        statusBadge.innerText = 'Analyzing (16kHz)...';
 
         sendAudioToServer(wavBlob);
     } catch (err) {
