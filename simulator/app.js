@@ -14,18 +14,28 @@ const lightVal = document.getElementById('light-val');
 const speciesSelect = document.getElementById('plant-species');
 const textQueryInput = document.getElementById('text-query');
 const sendTextBtn = document.getElementById('send-text-btn');
+const lowMoistureBtn = document.getElementById('low-moisture-btn');
+
+console.log("Simulator app.js starting...");
 
 moistureSlider.oninput = () => moistureVal.innerText = `${moistureSlider.value}%`;
 tempSlider.oninput = () => tempVal.innerText = `${tempSlider.value}°C`;
 lightSlider.oninput = () => lightVal.innerText = `${lightSlider.value}%`;
 
-sendTextBtn.onclick = () => sendTextQuery();
-textQueryInput.onkeydown = (e) => { if (e.key === 'Enter') sendTextQuery(); };
+if (sendTextBtn) sendTextBtn.onclick = () => sendTextQuery();
+if (textQueryInput) textQueryInput.onkeydown = (e) => { if (e.key === 'Enter') sendTextQuery(); };
+
+console.log("Main elements loaded:", {
+    record: !!recordBtn,
+    lowMoisture: !!lowMoistureBtn,
+    status: !!statusBadge
+});
 
 speciesSelect.onchange = async () => {
     statusBadge.innerText = 'Updating Species...';
     try {
-        await fetch(`http://localhost:8000/v1/device/pot_simulator_001/species?species=${speciesSelect.value}`, {
+        console.log("Updating species to:", speciesSelect.value);
+        await fetch(`/v1/device/pot_simulator_001/species?species=${speciesSelect.value}`, {
             method: 'POST'
         });
         statusBadge.innerText = 'Species Updated';
@@ -43,43 +53,144 @@ recordBtn.onclick = async () => {
     }
 };
 
+lowMoistureBtn.onclick = async () => {
+    lowMoistureBtn.disabled = true;
+    lowMoistureBtn.classList.add('loading');
+
+    moistureSlider.value = 10;
+    moistureVal.innerText = '10%';
+    statusBadge.innerText = 'Triggering Alert...';
+
+    // 100% Local Preview for Simulator + Notify Backend for Hardware
+    try {
+        console.log("Notifying backend and playing alert locally...");
+        const params = new URLSearchParams({
+            device_id: 'pot_simulator_001',
+            temperature: parseFloat(tempSlider.value),
+            moisture: 10.0,
+            light: parseFloat(lightSlider.value),
+            event: 'low_moisture_alert'
+        });
+
+        // Trigger the signal to propagation 
+        fetch(`/v1/ingest?${params}`, {
+            method: 'POST'
+        }).then(r => {
+            console.log("Backend notified of low moisture event. Status:", r.status);
+        }).catch(err => {
+            console.error("Failed to notify backend:", err);
+        });
+
+        const notifyAudio = new Audio('/v1/audio/notification/low-moisture');
+        notifyAudio.play()
+            .then(() => {
+                console.log("Notification sound playing!");
+                statusBadge.innerText = 'Alert Playing';
+                setTimeout(() => statusBadge.innerText = 'Ready', 3000);
+            })
+            .catch(e => {
+                console.error("Audio playback blocked or failed:", e);
+                statusBadge.innerText = 'Audio Blocked';
+            });
+    } catch (e) {
+        console.error("Alert trigger failed:", e);
+        statusBadge.innerText = 'Error';
+    } finally {
+        lowMoistureBtn.disabled = false;
+        lowMoistureBtn.classList.remove('loading');
+    }
+};
+
 async function startRecording() {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    input = audioContext.createMediaStreamSource(stream);
-    processor = audioContext.createScriptProcessor(4096, 1, 1);
+    try {
+        console.log("Starting recording session...");
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
 
-    audioChunks = [];
-    processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        // Copy samples
-        audioChunks.push(new Float32Array(inputData));
-    };
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
 
-    input.connect(processor);
-    processor.connect(audioContext.destination);
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log("Mic access granted.");
 
-    recordBtn.classList.add('recording');
-    recordBtn.querySelector('.label').innerText = 'Release to Activate...';
-    statusBadge.innerText = 'Listening (16kHz)...';
+        input = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        audioChunks = [];
+        processor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+            audioChunks.push(new Float32Array(inputData));
+        };
+
+        input.connect(processor);
+        processor.connect(audioContext.destination);
+
+        recordBtn.classList.add('recording');
+        recordBtn.querySelector('.label').innerText = 'Release to Activate...';
+        statusBadge.innerText = 'Listening (32kHz)...';
+        console.log("Recording started.");
+    } catch (err) {
+        console.error("Failed to start recording:", err);
+        statusBadge.innerText = 'Mic Error';
+        if (err.name === 'NotAllowedError') {
+            alert("Please allow microphone access to use the simulator.");
+        }
+    }
 }
 
 async function stopRecording() {
-    if (processor) {
-        processor.disconnect();
-        input.disconnect();
+    try {
+        console.log("Stopping recording...");
+        if (processor) {
+            processor.disconnect();
+            input.disconnect();
+        }
+
+        if (audioChunks.length === 0) {
+            console.warn("No audio data captured!");
+            statusBadge.innerText = 'No Audio';
+            return;
+        }
+
+        let finalBuffer = mergeBuffers(audioChunks);
+        const actualRate = audioContext.sampleRate;
+
+        // --- Permanent 32kHz Logic ---
+        // If the browser hardware rate is not 16000, we resample it ourselves
+        if (actualRate !== 16000) {
+            console.log(`Resampling from ${actualRate}Hz to 16000Hz...`);
+            finalBuffer = await resampleBuffer(finalBuffer, actualRate, 16000);
+        }
+
+        const wavBlob = encodeWAV(finalBuffer, 16000);
+        console.log(`Captured at 16000Hz (resampled if needed), total size: ${wavBlob.size} bytes`);
+
+        if (audioContext) {
+            await audioContext.close();
+            console.log("AudioContext closed.");
+        }
+
+        recordBtn.classList.remove('recording');
+        recordBtn.querySelector('.label').innerText = 'Simulate "Hey Plant"';
+        statusBadge.innerText = 'Analyzing (32kHz)...';
+
+        sendAudioToServer(wavBlob);
+    } catch (err) {
+        console.error("Error stopping recording:", err);
+        statusBadge.innerText = 'Error';
     }
+}
 
-    const finalBuffer = mergeBuffers(audioChunks);
-    const wavBlob = encodeWAV(finalBuffer, 16000);
-
-    await audioContext.close();
-
-    recordBtn.classList.remove('recording');
-    recordBtn.querySelector('.label').innerText = 'Simulate "Hey Plant"';
-    statusBadge.innerText = 'Analyzing...';
-
-    sendAudioToServer(wavBlob);
+async function resampleBuffer(buffer, fromRate, toRate) {
+    const offlineCtx = new OfflineAudioContext(1, (buffer.length * toRate) / fromRate, toRate);
+    const source = offlineCtx.createBufferSource();
+    const audioBuffer = offlineCtx.createBuffer(1, buffer.length, fromRate);
+    audioBuffer.getChannelData(0).set(buffer);
+    source.buffer = audioBuffer;
+    source.connect(offlineCtx.destination);
+    source.start(0);
+    const resampled = await offlineCtx.startRendering();
+    return resampled.getChannelData(0);
 }
 
 function mergeBuffers(chunks) {
@@ -155,7 +266,8 @@ async function sendAudioToServer(audioBlob) {
     });
 
     try {
-        const response = await fetch(`http://localhost:8000/v1/ingest?${params}`, {
+        console.log("Sending audio to server...");
+        const response = await fetch(`/v1/ingest?${params}`, {
             method: 'POST',
             body: formData
         });
@@ -201,8 +313,17 @@ function handlePlantResponse(data) {
     plantAvatar.classList.add('face-talking');
 
     // 4. Play the STREAMING audio
-    const audio = new Audio(`http://localhost:8000${data.audio_url}`);
+    const audio = new Audio(data.audio_url);
     audio.play().catch(e => console.error("Audio play failed:", e));
+
+    // 4b. Play notification sound if present (only if not already triggered by a button click)
+    if (data.notification_url && !data.is_triggered_manually) {
+        console.log("Playing notification from voice response path...");
+        const notifyAudio = new Audio(data.notification_url);
+        setTimeout(() => {
+            notifyAudio.play().catch(e => console.warn("Notification play failed:", e));
+        }, 800);
+    }
 
     audio.onended = async () => {
         plantAvatar.classList.remove('face-talking');
@@ -211,7 +332,7 @@ function handlePlantResponse(data) {
         // 5. Fetch Final Text once audio is done
         const fetchText = async (retries = 3) => {
             try {
-                const resp = await fetch(`http://localhost:8000/v1/history?device_id=pot_simulator_001`);
+                const resp = await fetch(`/v1/history?device_id=pot_simulator_001`);
                 const history = await resp.json();
                 const latest = history.find(c => c.id === data.id);
                 if (latest && latest.reply_text !== "...") {
@@ -244,7 +365,8 @@ async function sendTextQuery() {
     });
 
     try {
-        const response = await fetch(`http://localhost:8000/v1/ingest?${params}`, {
+        console.log("Sending text query:", query);
+        const response = await fetch(`/v1/ingest?${params}`, {
             method: 'POST'
         });
 

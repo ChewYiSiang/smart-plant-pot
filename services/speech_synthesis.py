@@ -15,8 +15,8 @@ class SpeechSynthesisService:
         text: str, 
         output_path: str, 
         volume_gain_db: float = 0.0,
-        speaking_rate: float = 0.92,
-        pitch: float = 2.0
+        speaking_rate: float = 0.95,
+        pitch: float = 0.0
     ):
         """Synthesizes text to an MP3 file using Google Cloud TTS as plain text."""
         synthesis_input = texttospeech.SynthesisInput(text=text)
@@ -30,10 +30,11 @@ class SpeechSynthesisService:
         # Select the type of audio file you want returned
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
-            volume_gain_db=volume_gain_db,
+            volume_gain_db=volume_gain_db, 
             speaking_rate=speaking_rate,
             pitch=pitch,
-            sample_rate_hertz=16000 # Align with hardware preference
+            sample_rate_hertz=16000,
+            effects_profile_id=["small-bluetooth-speaker-class-device"]
         )
 
         # Perform the text-to-speech request
@@ -53,8 +54,8 @@ class SpeechSynthesisService:
         self, 
         text: str, 
         volume_gain_db: float = 0.0,
-        speaking_rate: float = 0.92,
-        pitch: float = 2.0
+        speaking_rate: float = 0.95,
+        pitch: float = 0.0
     ) -> bytes:
         """Synthesizes text and returns raw audio bytes (MP3) as plain text."""
         print(f"DEBUG: [TTS] Synthesizing plain text: {text[:50]}...")
@@ -70,7 +71,8 @@ class SpeechSynthesisService:
             volume_gain_db=volume_gain_db,
             speaking_rate=speaking_rate,
             pitch=pitch,
-            sample_rate_hertz=16000 # Align with hardware preference
+            sample_rate_hertz=16000,
+            effects_profile_id=["small-bluetooth-speaker-class-device"]
         )
         
         response = self.client.synthesize_speech(

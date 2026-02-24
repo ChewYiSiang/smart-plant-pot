@@ -1,12 +1,12 @@
 import os
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 from models import init_db, get_engine, Conversation, Device, SensorReading
 from config import get_settings
 
@@ -110,7 +110,7 @@ async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
         tts = SpeechSynthesisService()
         
         # Audio gain adjustment (-1.5dB for clarity without loudness loss)
-        VOL_GAIN = -1.5
+        VOL_GAIN = 0.0
         CHUNK_SIZE = 4096 # Slightly larger chunks for better throughput
         
         reply_text = convo.ai_response or ""
@@ -179,41 +179,65 @@ async def ingest_data(
     temperature: float,
     moisture: float,
     light: float,
-    background_tasks: BackgroundTasks,
-    user_query: Optional[str] = Query(None),
     event: Optional[str] = None,
+    user_query: Optional[str] = Query(None),
     audio: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session)
 ):
-    print(f"DEBUG: Received Ingest - Device: {device_id}, Text: {user_query}, Audio: {audio.filename if audio else 'None'}")
+    print(f"\n🚀 [INGEST START] Device: {device_id}, Event: {event}, Text: {user_query}")
     # 1. Ensure device exists
     device = session.get(Device, device_id)
     if not device:
-        device = Device(id=device_id, name=f"Pot {device_id}", species="Basil")
+        is_sim = (device_id == "pot_simulator_001" or "sim" in device_id.lower())
+        device = Device(id=device_id, name=f"Pot {device_id}", species="Basil", is_simulator=is_sim)
         session.add(device)
         session.commit()
     
     # 0. Handle Sensor Data Prioritization (Physical Pot vs Simulator)
     used_hardware_data = False
-    if device_id == "pot_simulator_001":
-        from datetime import datetime, timedelta
+    if getattr(device, "is_simulator", False):
         from sqlalchemy import select
-        ten_mins_ago = datetime.utcnow() - timedelta(minutes=10)
-        statement = select(SensorReading).where(
-            SensorReading.device_id == "s3_devkitc_plant_pot",
-            SensorReading.timestamp >= ten_mins_ago
-        ).order_by(SensorReading.timestamp.desc()).limit(1)
+        ten_mins_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
+        
+        # Look for the most recent reading from ANY hardware device (is_simulator=False)
+        # We join with device to check is_simulator flag
+        statement = (
+            select(SensorReading)
+            .join(Device)
+            .where(
+                Device.is_simulator == False,
+                SensorReading.timestamp >= ten_mins_ago
+            )
+            .order_by(SensorReading.timestamp.desc())
+            .limit(1)
+        )
         
         recent_reading = session.exec(statement).first()
         if recent_reading:
-            print(f"DEBUG: Found recent hardware reading. Overriding simulator sliders.")
-            temperature = recent_reading.temperature
-            moisture = recent_reading.moisture
-            light = recent_reading.light
+            hw_device_id = getattr(recent_reading, "device_id", "Unknown")
+            print(f"DEBUG: Found recent hardware reading from {hw_device_id}. Overriding simulator sliders.")
+            
+            # Prioritize Hardware data if present
+            temperature = getattr(recent_reading, "temperature", temperature)
+            light = getattr(recent_reading, "light", light)
+            
+            # Special logic for moisture: If hardware sensor says 0 (likely disconnected), 
+            # fall back to simulator value so user can still test the flow.
+            hw_moisture = getattr(recent_reading, "moisture", 0.0)
+            if hw_moisture > 0.0:
+                print(f"  ℹ️  Prioritizing hardware moisture: {hw_moisture}%")
+                moisture = hw_moisture
+            else:
+                print(f"  ⚠️  Hardware moisture is 0% (disconnected?). Falling back to simulator slider: {moisture}%")
+            
             used_hardware_data = True
 
+    # --- FORCED TRIGGER: Allow event='low_moisture_alert' to bypass and notify ---
+    # This is for testing with the simulator button even if real sensors are high.
+    force_notification = (event == "low_moisture_alert")
+
     # 1. Log Raw Data for Verification
-    source_label = "[LIVE SENSORS]" if device_id == "s3_devkitc_plant_pot" else "[SIMULATOR]"
+    source_label = "[LIVE SENSORS]" if not getattr(device, "is_simulator", False) else "[SIMULATOR]"
     if used_hardware_data:
         source_label = "[SIMULATOR + HW OVERRIDE]"
         
@@ -227,10 +251,61 @@ async def ingest_data(
     print(f"-----------------------------------\n")
 
     # 1. Create Sensor Reading Record
-    reading = SensorReading(device_id=device_id, temperature=temperature, moisture=moisture, light=light, event=event)
-    session.add(reading)
+    try:
+        reading = SensorReading(device_id=device_id, temperature=temperature, moisture=moisture, light=light, event=event)
+        session.add(reading)
+        
+        # --- REMOTE TRIGGER: Propagation from Simulator to Physical Pot ---
+        if force_notification and getattr(device, "is_simulator", False):
+            # Find any physical device that has sent data in the last 10 minutes
+            ten_mins_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
+            statement = (
+                select(Device)
+                .join(SensorReading)
+                .where(
+                    Device.is_simulator == False,
+                    SensorReading.timestamp >= ten_mins_ago
+                )
+                .order_by(SensorReading.timestamp.desc())
+                .limit(1)
+            )
+            physical_device = session.exec(statement).first()
+            if physical_device:
+                print(f"🔥 [TRACE] Found Active Physical Device: {physical_device.id}. Propagating Alert...")
+                alert_reading = SensorReading(
+                    device_id=physical_device.id, 
+                    temperature=temperature, 
+                    moisture=10.0, 
+                    light=light, 
+                    event="remote_simulator_alert"
+                )
+                session.add(alert_reading)
+                print(f"✅ [TRACE] Alert reading added to session for {physical_device.id}")
+            else:
+                # Fallback to the first found physical device if no recent activity
+                print(f"🔍 [TRACE] No active physical device found in last 10m. Searching for ANY physical device...")
+                statement = select(Device).where(Device.is_simulator == False).limit(1)
+                physical_device = session.exec(statement).first()
+                if physical_device:
+                    print(f"🔥 [TRACE] Falling back to physical device {physical_device.id}")
+                    alert_reading = SensorReading(
+                        device_id=physical_device.id, 
+                        temperature=temperature, 
+                        moisture=10.0, 
+                        light=light, 
+                        event="remote_simulator_alert"
+                    )
+                    session.add(alert_reading)
+                    print(f"✅ [TRACE] Fallback alert reading added to session for {physical_device.id}")
+                else:
+                    print(f"❌ [TRACE] NO PHYSICAL DEVICES FOUND IN DATABASE AT ALL!")
+        
+        session.commit()
+        print(f"💾 [TRACE] Session Committed successfully.")
+    except Exception as e:
+        print(f"WARNING: Could not log sensor reading: {e}")
     
-    # 3. Handle STT
+    # 3. Handle STT (Only if user_query not provided)
     is_silent_recording = False
     if not user_query and audio:
         from services.storage import StorageService
@@ -262,7 +337,14 @@ async def ingest_data(
     local_knowledge = fast_find_knowledge(device.species) if (user_query and len(user_query) > 3) else None
 
     # 5. Handle Response Generation
-    if is_silent_recording:
+    # --- [REFINED] EVENT-ONLY INGEST LOGIC ---
+    # If this is just a sensor log or an alert event (no voice/text query), 
+    # skip the AI agent and return a minimalist response.
+    if not (user_query or audio):
+        reply_text = "..." # Minimalist placeholder
+        mood = "neutral"
+        priority = "normal"
+    elif is_silent_recording:
         reply_text = "Hi there, I didn't catch what you said. Could you repeat that?"
         mood = "neutral"
         priority = "normal"
@@ -288,24 +370,47 @@ async def ingest_data(
         mood = result.get("mood", "neutral")
         priority = result.get("priority", "normal")
 
-    # 6. Create Conversation Record with full text
-    convo = Conversation(
-        device_id=device_id,
-        transcription=user_query,
-        ai_response=reply_text,
-        mood=mood
-    )
-    session.add(convo)
-    session.commit()
-    session.refresh(convo)
+    # 6. Create Conversation Record with full text (SKIP IF SILENT)
+    class MockConvo:
+        def __init__(self, id=0):
+            self.id = id
+            self.reply_text = "..."
+            self.mood = "neutral"
+            
+    convo = None
+    if reply_text != "...":
+        try:
+            convo = Conversation(
+                device_id=device_id,
+                transcription=user_query,
+                ai_response=reply_text,
+                mood=mood
+            )
+            session.add(convo)
+            session.commit()
+            session.refresh(convo)
+        except Exception as e:
+            print(f"WARNING: Failed to save conversation to DB: {e}")
+            convo = MockConvo()
+    else:
+        # It's a silent event, just create a mock object for the response
+        convo = MockConvo(id=9999)
+
+    # 7. Return Full JSON
 
     # 7. Return Full JSON
     from fastapi import Response
     import json
+    
+    notification_url = None
+    if moisture < 20.0 or force_notification:
+        notification_url = "/v1/audio/notification/low-moisture"
+        
     content = {
         "user_query": user_query,
         "reply_text": reply_text,
         "audio_url": f"/v1/audio/stream/{convo.id}",
+        "notification_url": notification_url,
         "display": {
             "mood": mood,
             "priority": priority
@@ -327,18 +432,117 @@ async def ingest_data(
 
 @app.get("/v1/device/{device_id}/poll")
 async def poll_for_audio(device_id: str, session: Session = Depends(get_session)):
-    """Polling endpoint for the ESP32 to check for pending audio streams (e.g. from simulator)."""
+    """Polling endpoint for the ESP32 to check for pending audio streams."""
+    print(f"DEBUG: [Poll Request] From Device: {device_id}")
+    
     device = session.get(Device, device_id)
-    if not device or device.pending_audio_id is None:
-        return {"convo_id": None}
+    # 0. Register device if it doesn't exist yet
+    if not device:
+        print(f"  ℹ️ [Poll] New device identified: {device_id}. Registering...")
+        is_sim = (device_id == "pot_simulator_001" or "sim" in device_id.lower())
+        device = Device(id=device_id, name=f"Pot {device_id}", species="Basil", is_simulator=is_sim)
+        session.add(device)
+        session.commit()
+        session.refresh(device)
+
+    convo_id = None
+    if device.pending_audio_id is not None:
+        convo_id = device.pending_audio_id
+        print(f"  🔔 [Poll] PENDING VOICE ID: {convo_id} for device {device_id}")
+        # Clear the flag immediately after serving
+        device.pending_audio_id = None
+        session.add(device)
+        session.commit()
     
-    convo_id = device.pending_audio_id
-    # Clear the flag immediately after serving
-    device.pending_audio_id = None
-    session.add(device)
-    session.commit()
+    # 2. Check for Low Moisture Notification
+    ten_mins_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
     
-    return {"convo_id": convo_id, "audio_url": f"/v1/audio/stream/{convo_id}"}
+    statement = select(SensorReading).where(
+        SensorReading.device_id == device_id,
+        SensorReading.timestamp >= ten_mins_ago,
+        or_(
+            SensorReading.moisture < 20.0,
+            SensorReading.event == "low_moisture_alert",
+            SensorReading.event == "remote_simulator_alert"
+        )
+    ).order_by(SensorReading.timestamp.desc()).limit(1)
+    
+    last_reading = session.exec(statement).first()
+    notification_url = None
+    notification_format = None
+    if last_reading:
+        # [NEW] Check if this alert has already been played on this device
+        if device.last_notified_reading_id != last_reading.id:
+            print(f"  ⚠️ [Poll] NEW ALERT found (ID: {last_reading.id}, Event: {last_reading.event}) for {device_id}")
+            notification_url = "/v1/audio/notification/low-moisture"
+            
+            # Detect format (WAV or MP3)
+            folder = "audio_artifacts/notification_sound"
+            if os.path.exists(folder):
+                files = [f for f in os.listdir(folder) if f.lower().endswith((".wav", ".mp3"))]
+                if any(f.lower().endswith(".wav") for f in files):
+                    notification_format = "wav"
+                elif any(f.lower().endswith(".mp3") for f in files):
+                    notification_format = "mp3"
+
+            # Consume the alert
+            device.last_notified_reading_id = last_reading.id
+            session.add(device)
+            session.commit()
+        else:
+            print(f"  ℹ️ [Poll] Skipping already played alert (ID: {last_reading.id}) for {device_id}")
+    
+    if not convo_id and not notification_url:
+        print(f"  💤 [Poll] No pending audio/alerts for {device_id}")
+
+    return {
+        "convo_id": convo_id, 
+        "audio_url": f"/v1/audio/stream/{convo_id}" if convo_id else None,
+        "notification_url": notification_url,
+        "notification_format": notification_format
+    }
+
+def serve_notification_sound(filename_prefix: str, default_priority_exts: list = [".wav", ".mp3"]):
+    folder = "audio_artifacts/notification_sound"
+    if not os.path.exists(folder):
+        raise HTTPException(status_code=404, detail="Notification folder missing")
+        
+    valid_exts = (".wav", ".mp3")
+    files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.lower().endswith(valid_exts)]
+    
+    # Try prioritized extensions for the specific prefix
+    for ext in default_priority_exts:
+        target = f"{filename_prefix}{ext}"
+        if target in files:
+            file_path = os.path.join(folder, target)
+            print(f"  ✅ [Serving] Delivering prioritized file: {file_path}")
+            media_type = "audio/wav" if ext == ".wav" else "audio/mpeg"
+            return FileResponse(file_path, media_type=media_type)
+            
+    # Fallback to any file with that prefix if priority failed
+    for f in files:
+        if f.lower().startswith(filename_prefix):
+            file_path = os.path.join(folder, f)
+            print(f"  ✅ [Serving] Delivering fallback file: {file_path}")
+            media_type = "audio/wav" if f.lower().endswith(".wav") else "audio/mpeg"
+            return FileResponse(file_path, media_type=media_type)
+
+    raise HTTPException(status_code=404, detail=f"No audio file found for {filename_prefix}")
+
+@app.get("/v1/audio/notification/low-moisture")
+async def get_low_moisture_notification():
+    """Serves the low moisture notification sound (priority: alert.wav)."""
+    return serve_notification_sound("alert")
+
+@app.get("/v1/audio/notification/record-start")
+async def get_record_start_notification():
+    """Serves the record start sound (priority: record_start.wav)."""
+    return serve_notification_sound("record_start")
+
+@app.get("/v1/audio/notification/record-stop")
+async def get_record_stop_notification():
+    """Serves the record stop sound (priority: record_stop.wav)."""
+    return serve_notification_sound("record_stop")
 async def get_history(device_id: str = "pot_simulator_001", session: Session = Depends(get_session)):
     statement = select(Conversation).where(Conversation.device_id == device_id).order_by(Conversation.timestamp.desc()).limit(10)
     results = session.exec(statement).all()
@@ -355,16 +559,6 @@ async def get_history(device_id: str = "pot_simulator_001", session: Session = D
             "timestamp": c.timestamp.isoformat()
         })
     return history
-
-@app.get("/v1/audio/{convo_id}")
-async def get_audio(convo_id: int, session: Session = Depends(get_session)):
-    convo = session.get(Conversation, convo_id)
-    if not convo or not convo.audio_file_path:
-        raise HTTPException(status_code=404, detail="Audio not found")
-    
-    settings = get_settings()
-    full_path = os.path.join(settings.STORAGE_PATH, convo.audio_file_path)
-    return FileResponse(full_path, media_type="audio/wav")
 
 @app.post("/v1/device/{device_id}/species")
 async def update_species(

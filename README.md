@@ -214,6 +214,7 @@ board_build.partitions = huge_app.csv
 #include <esp_wifi.h>
 #include "AudioFileSourceHTTPStream.h"
 #include "AudioGeneratorMP3.h"
+#include "AudioGeneratorWAV.h"
 #include "AudioOutputI2S.h"
 #include "driver/i2s.h"
 #include "esp_heap_caps.h"
@@ -236,6 +237,9 @@ const char* deviceId = "s3_devkitc_plant_pot";
 #define I2S_MIC_SD 10
 #define I2S_MIC_WS 11
 #define I2S_MIC_SCK 12
+#define LED_RED 14
+#define LED_GREEN 13
+#define LED_BLUE 15
 
 DHT dht(DHTPIN, DHTTYPE);
 unsigned long lastDhtReadTime = 0;
@@ -245,6 +249,7 @@ float humidity = 50.0;
 
 // --- AUDIO OBJECTS ---
 AudioGeneratorMP3 *mp3 = NULL;
+AudioGeneratorWAV *wav = NULL;
 AudioFileSourceHTTPStream *file = NULL;
 AudioOutputI2S *out = NULL;
 
@@ -258,7 +263,8 @@ size_t audioBufferSize = (SAMPLE_RATE * 2 * RECORD_TIME) + WAV_HEADER_SIZE + BUF
 String globalAudioUrl = ""; // Persistent URL for the background streaming task
 bool isPlaying = false; // Flag to prevent re-triggering during playback
 unsigned long lastPollTime = 0;
-const unsigned long pollInterval = 3000; // Poll every 3 seconds
+const unsigned long pollInterval = 1000; // Poll every 1 second for snappier alerts
+unsigned long lastNotificationTime = 0; // Timer for low moisture alerts
 
 // Function to generate WAV header
 void generateWavHeader(uint8_t* header, uint32_t wavDataSize) {
@@ -293,6 +299,46 @@ String getWiFiStatus(wl_status_t status) {
   }
 }
 
+void playSyncNotification(String type) {
+    // 1. Setup clean state
+    String serverBase = String(serverUrl).substring(0, String(serverUrl).indexOf("/v1/ingest"));
+    String notifyUrl = serverBase + "/v1/audio/notification/" + type;
+    
+    Serial.printf("[SyncAlert] Fetching %s...\n", type.c_str());
+    
+    if (mp3 && mp3->isRunning()) mp3->stop();
+    if (wav && wav->isRunning()) wav->stop();
+    if (file) { delete file; file = NULL; }
+    if (mp3) { delete mp3; mp3 = NULL; }
+    if (wav) { delete wav; wav = NULL; }
+    if (out) { delete out; out = NULL; }
+
+    out = new AudioOutputI2S();
+    out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
+    out->SetGain(0.0);
+    
+    file = new AudioFileSourceHTTPStream(notifyUrl.c_str());
+    file->SetReconnect(0, 0);
+    
+    // Assume .wav for UI sounds as requested
+    wav = new AudioGeneratorWAV();
+    if (wav->begin(file, out)) {
+        out->SetGain(0.6);
+        while (wav->isRunning()) {
+            if (!wav->loop()) {
+                wav->stop();
+                break;
+            }
+        }
+        Serial.printf("[SyncAlert] %s finished.\n", type.c_str());
+    }
+
+    // Cleanup for next use
+    if (wav) { delete wav; wav = NULL; }
+    if (file) { delete file; file = NULL; }
+    if (out) { delete out; out = NULL; }
+}
+
 void checkExternalAudio() {
   if (isPlaying || audioBuffer != NULL) return; // Don't poll while busy/recording
 
@@ -306,16 +352,21 @@ void checkExternalAudio() {
   http.begin(client, pollUrl);
   int httpCode = http.GET();
   
-  if (httpCode == 200) {
+    if (httpCode == 200) {
     String payload = http.getString();
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc; 
     deserializeJson(doc, payload);
     
+    // DEBUG: Show the poll results if anything interesting is found
+    if (!doc["convo_id"].isNull() || !doc["notification_url"].isNull()) {
+      Serial.println("[Poll] Data found in response!");
+    }
+
+    // 1. Handle Voice/Simulator Pending Audio
     if (!doc["convo_id"].isNull()) {
       const char* audioUrl = doc["audio_url"];
-      Serial.printf("\n[Simulator] Request received: %s\n", audioUrl);
+      Serial.printf("[Simulator] Voice Request: %s\n", audioUrl);
       
-      // serverBase is already calculated above
       globalAudioUrl = serverBase + String(audioUrl);
       
       if (mp3 && mp3->isRunning()) mp3->stop();
@@ -332,9 +383,51 @@ void checkExternalAudio() {
       if (mp3->begin(file, out)) {
           isPlaying = true;
           delay(200);
-          out->SetGain(0.5);
+          out->SetGain(0.8);
+          Serial.println("[Success] Voice Playback Started.");
       }
     }
+
+    // 2. Handle Low Moisture Notification (Persistence handled by backend)
+    if (!doc["notification_url"].isNull() && !isPlaying) {
+      const char* notifyUrl = doc["notification_url"];
+      const char* format = doc["notification_format"];
+      Serial.printf("[Alert] Triggering Sound (%s): %s\n", format, notifyUrl);
+      
+      String fullNotifyUrl = serverBase + String(notifyUrl);
+      
+      if (mp3 && mp3->isRunning()) mp3->stop();
+      if (wav && wav->isRunning()) wav->stop();
+      if (file) { delete file; file = NULL; }
+      if (mp3) { delete mp3; mp3 = NULL; }
+      if (wav) { delete wav; wav = NULL; }
+      if (out) { delete out; out = NULL; }
+
+      out = new AudioOutputI2S();
+      out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
+      out->SetGain(0.0);
+      file = new AudioFileSourceHTTPStream(fullNotifyUrl.c_str());
+      file->SetReconnect(0, 0); 
+      
+      bool success = false;
+      if (String(format) == "wav") {
+          wav = new AudioGeneratorWAV();
+          success = wav->begin(file, out);
+      } else {
+          mp3 = new AudioGeneratorMP3();
+          success = mp3->begin(file, out);
+      }
+
+      if (success) {
+          isPlaying = true;
+          delay(200);
+          out->SetGain(0.8); 
+          Serial.println("[Success] Notification Playback Started.");
+      }
+    }
+  } else {
+    // Only print errors for debugging connections
+    if (httpCode != -1) Serial.printf("[Poll] Error: %d\n", httpCode);
   }
   http.end();
 }
@@ -474,8 +567,8 @@ void sendData(float temp, float moisture, float light, uint8_t* audioData, size_
             }
             
             delay(200); 
-            out->SetGain(0.5); 
-            Serial.println("DEBUG: Gain set to 0.5");
+            out->SetGain(0.8); 
+            Serial.println("DEBUG: Gain set to 0.8");
         } else {
             Serial.printf("JSON Parse Error: %s\n", error.c_str());
         }
@@ -528,6 +621,7 @@ size_t recordAudio() {
     i2s_set_pin(I2S_NUM_1, &pin_config);
     i2s_zero_dma_buffer(I2S_NUM_1); // Crucial: Clear DMA before starting
 
+    digitalWrite(LED_GREEN, HIGH); // Turn on green LED
     Serial.printf("--- RECORDING (%d Seconds) ---\n", RECORD_TIME);
     Serial.println("Speak now...");
     
@@ -563,6 +657,7 @@ size_t recordAudio() {
     i2s_stop(I2S_NUM_1);
     i2s_driver_uninstall(I2S_NUM_1); // Release I2S1 for Speaker
     
+    digitalWrite(LED_GREEN, LOW); // Turn off green LED
     Serial.println("Recording Finished.");
     Serial.println("Stabilizing Radio for 1s...");
     delay(1000); // BREATHING ROOM: Allow radio to recover from I2S high-speed clocks
@@ -652,6 +747,14 @@ void setup() {
   out->SetGain(0.0); // ANTI-POP: Build up clocks first
   delay(100);
   out->SetGain(0.5); 
+
+  // Initialize RGB LED
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+  digitalWrite(LED_RED, LOW);
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_BLUE, LOW);
 }
 
 void loop() {
@@ -686,25 +789,49 @@ void loop() {
 
   if (Serial.available() && !isPlaying) {
     if (Serial.read() == 's') {
-      size_t actualSize = recordAudio(); // Now returns the recorded payload size
+      size_t actualSize = 0;
+      
+      // 1. Play Start Recording Sound
+      playSyncNotification("record-start");
+      
+      // 2. recordAudio now returns the recorded payload size
+      actualSize = recordAudio(); 
+      
       if (actualSize > WAV_HEADER_SIZE) {
+          // 3. Play Stop Recording Sound
+          playSyncNotification("record-stop");
+          
           Serial.println("Stabilizing WiFi before send...");
-          delay(1000); 
+          delay(100); // Shorter delay post-UI sound
           sendData(temp, moisture, 5.0, audioBuffer, actualSize);
-          // Memory is now freed inside sendData() for faster recovery
       }
-      // Flush any accidental extra 's' presses during recording/sending
+      // Flush any accidental extra 's' presses
       while(Serial.available()) Serial.read(); 
     }
   }
 
   // [FIXED] Proper Loop Handling
-  if (isPlaying && mp3 && mp3->isRunning()) {
-      // Feed the MP3 decoder as fast as possible
-      if (!mp3->loop()) {
+  if (isPlaying) {
+      bool running = false;
+      if (mp3 && mp3->isRunning()) {
+          if (!mp3->loop()) {
+              mp3->stop();
+              delete mp3; mp3 = NULL;
+          } else {
+              running = true;
+          }
+      }
+      if (wav && wav->isRunning()) {
+          if (!wav->loop()) {
+              wav->stop();
+              delete wav; wav = NULL;
+          } else {
+              running = true;
+          }
+      }
+
+      if (!running) {
           Serial.println("Playback finished. Cleaning up objects.");
-          mp3->stop();
-          delete mp3; mp3 = NULL;
           if (file) { delete file; file = NULL; }
           if (out) out->SetGain(0.0); // ANTI-POP
           isPlaying = false; // Allow recording again
@@ -767,7 +894,81 @@ If your device records silence (zero bytes or a flat-line waveform):
     (Some ESP32-S3 driver versions have inverted channel mapping).
 3.  **Check Power**: Ensure the INMP441 is getting a clean 3.3V. Low voltage can cause the digital output to stay at zero.
 
-## Getting Started with Hardware
+- **Audio Streaming Service**: Dynamic sentence-based speech synthesis with buffering.
+- **Mic Troubleshooting**: Utilities to verify the audio pipeline from capture to transcription.
+- **Status Indicators**: Support for Analog RGB LEDs to show recording states.
+
+## 🌈 Adding an RGB LED Status Indicator
+
+To show a **Green Light** during recording, follow these steps:
+
+### 1. Hardware Wiring
+Connect your Analog RGB LED (Common Cathode) to the following pins:
+
+| Color | ESP32-S3 Pin | Note |
+| :--- | :--- | :--- |
+| **Common (GND)** | GND | Longest pin usually |
+| **Red** | GPIO 14 | |
+| **Green** | GPIO 13 | Primary indicator for recording |
+| **Blue** | GPIO 15 | |
+
+*Note: Use 220Ω resistors in series with each color pin to prevent burning out the LED.*
+
+### 2. Software Setup
+Update your `src/main.cpp` with these definitions:
+
+```cpp
+// Add at the top of main.cpp
+#define LED_RED 14
+#define LED_GREEN 13
+#define LED_BLUE 15
+
+// Inside setup()
+pinMode(LED_RED, OUTPUT);
+pinMode(LED_GREEN, OUTPUT);
+pinMode(LED_BLUE, OUTPUT);
+
+// Turn off all at start
+digitalWrite(LED_RED, LOW);
+digitalWrite(LED_GREEN, LOW);
+digitalWrite(LED_BLUE, LOW);
+```
+
+Update `recordAudio()` to toggle the Green LED:
+
+```cpp
+// Inside recordAudio(), before starting the loop
+digitalWrite(LED_GREEN, HIGH); // Turn on green
+
+// Inside recordAudio(), after the recording loop ends
+digitalWrite(LED_GREEN, LOW); // Turn off green
+```
+
+## 🛠 Troubleshooting the Microphone/Audio
+
+If you are having trouble with audio ingestion or transcription, use the built-in troubleshooter:
+
+1. **Verify Backend is Running**:
+   ```bash
+   python main.py
+   ```
+2. **Run the Troubleshooter**:
+   ```bash
+   python tests/mic_troubleshoot.py
+   ```
+   This will test:
+   - Google API connectivity.
+   - Isolated transcription logic using existing recordings.
+   - Full-cycle ingestion (requires the server to be running).
+
+3. **Manual Window Recording Test**:
+   - Open Windows **Voice Recorder**.
+   - Record a short clip (e.g., "How is the soil moisture?").
+   - Save the file as `.wav`.
+   - Copy it to `audio_artifacts/s3_devkitc_plant_pot/uploads/test.wav`.
+   - Re-run `python tests/mic_troubleshoot.py` to verify it can transcribe your fresh recording.
+
+## 🚀 Getting Started
 
 Follow these steps to get your physical Smart Plant Pot online and connected to the backend:
 
