@@ -157,6 +157,13 @@ To build the physical Smart Plant Pot, you will need:
 | **MAX98357A (BCLK)** | GPIO 5 | Bit Clock |
 | **MAX98357A (LRC)** | GPIO 6 | Word Select / LR Clock |
 | **MAX98357A (DIN)** | GPIO 7 | Data In |
+| **Status LED** | GPIO 13, 14, 15 | RGB LED |
+
+### 1a. Low-Latency Audio Optimization (LittleFS)
+To eliminate the ~1s delay when playing notification sounds, you can store the sound files locally on the ESP32.
+1. Place your `alert.wav`, `record-start.wav`, and `record-stop.wav` files in a `data` folder in your project root.
+2. In VS Code PlatformIO, use **"Upload Filesystem Image"** to flash these files.
+3. The code will automatically detect these files and play them locally instead of downloading them.
 
 ### 2. Assembly Steps
 1. **Power**: Connect 3.3V and GND from the ESP32-S3 to all sensors. The MAX98357A can be connected to the 5V pin for higher volume.
@@ -184,6 +191,7 @@ board = esp32-s3-devkitc-1
 framework = arduino
 monitor_speed = 115200
 lib_ldf_mode = deep+
+board_build.filesystem = littlefs ; REQUIRED for local audio storage
 lib_deps =
     earlephilhower/ESP8266Audio @ ^1.9.7
     WiFi
@@ -195,11 +203,11 @@ lib_deps =
 build_flags =
     -D CORE_DEBUG_LEVEL=3
     -D ARDUINO_USB_MODE=1
-    -D ARDUINO_USB_CDC_ON_BOOT=0 ; Set to 0 because using UART port
+    -D ARDUINO_USB_CDC_ON_BOOT=0 
     -D BOARD_HAS_PSRAM
     -std=gnu++2a
-board_build.arduino.memory_type = qio_opi ; REQUIRED for N8R8 (Quad Flash, Octal PSRAM)
-board_build.flash_mode = qio ; REQUIRED for N8R8
+board_build.arduino.memory_type = qio_opi 
+board_build.flash_mode = qio 
 board_build.partitions = huge_app.csv
 ```
 
@@ -212,7 +220,9 @@ board_build.partitions = huge_app.csv
 #include <ArduinoJson.h>
 #include <DHT.h>
 #include <esp_wifi.h>
+#include <LittleFS.h>
 #include "AudioFileSourceHTTPStream.h"
+#include "AudioFileSourceLittleFS.h"
 #include "AudioGeneratorMP3.h"
 #include "AudioGeneratorWAV.h"
 #include "AudioOutputI2S.h"
@@ -303,8 +313,9 @@ void playSyncNotification(String type) {
     // 1. Setup clean state
     String serverBase = String(serverUrl).substring(0, String(serverUrl).indexOf("/v1/ingest"));
     String notifyUrl = serverBase + "/v1/audio/notification/" + type;
+    String localPath = "/" + type + ".wav";
     
-    Serial.printf("[SyncAlert] Fetching %s...\n", type.c_str());
+    Serial.printf("[SyncAlert] Checking for %s...\n", type.c_str());
     
     if (mp3 && mp3->isRunning()) mp3->stop();
     if (wav && wav->isRunning()) wav->stop();
@@ -317,12 +328,23 @@ void playSyncNotification(String type) {
     out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
     out->SetGain(0.0);
     
-    file = new AudioFileSourceHTTPStream(notifyUrl.c_str());
-    file->SetReconnect(0, 0);
-    
-    // Assume .wav for UI sounds as requested
-    wav = new AudioGeneratorWAV();
-    if (wav->begin(file, out)) {
+    bool started = false;
+    AudioFileSourceLittleFS *localSource = NULL;
+
+    if (LittleFS.exists(localPath)) {
+        Serial.printf("[SyncAlert] Using local file: %s\n", localPath.c_str());
+        localSource = new AudioFileSourceLittleFS(localPath.c_str());
+        wav = new AudioGeneratorWAV();
+        started = wav->begin(localSource, out);
+    } else {
+        Serial.printf("[SyncAlert] Local file missing, falling back to network: %s\n", notifyUrl.c_str());
+        file = new AudioFileSourceHTTPStream(notifyUrl.c_str());
+        file->SetReconnect(0, 0);
+        wav = new AudioGeneratorWAV();
+        started = wav->begin(file, out);
+    }
+
+    if (started) {
         out->SetGain(0.6);
         while (wav->isRunning()) {
             if (!wav->loop()) {
@@ -333,8 +355,9 @@ void playSyncNotification(String type) {
         Serial.printf("[SyncAlert] %s finished.\n", type.c_str());
     }
 
-    // Cleanup for next use
+    // Cleanup
     if (wav) { delete wav; wav = NULL; }
+    if (localSource) { delete localSource; localSource = NULL; }
     if (file) { delete file; file = NULL; }
     if (out) { delete out; out = NULL; }
 }
@@ -388,13 +411,9 @@ void checkExternalAudio() {
       }
     }
 
-    // 2. Handle Low Moisture Notification (Persistence handled by backend)
+    // 2. Handle Low Moisture Notification (Optimized: Check flash for local alert.wav)
     if (!doc["notification_url"].isNull() && !isPlaying) {
-      const char* notifyUrl = doc["notification_url"];
-      const char* format = doc["notification_format"];
-      Serial.printf("[Alert] Triggering Sound (%s): %s\n", format, notifyUrl);
-      
-      String fullNotifyUrl = serverBase + String(notifyUrl);
+      Serial.println("[Alert] Triggering Sound Check (Local vs Network)...");
       
       if (mp3 && mp3->isRunning()) mp3->stop();
       if (wav && wav->isRunning()) wav->stop();
@@ -406,16 +425,32 @@ void checkExternalAudio() {
       out = new AudioOutputI2S();
       out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
       out->SetGain(0.0);
-      file = new AudioFileSourceHTTPStream(fullNotifyUrl.c_str());
-      file->SetReconnect(0, 0); 
       
       bool success = false;
-      if (String(format) == "wav") {
+      AudioFileSourceLittleFS *localFile = NULL;
+
+      if (LittleFS.exists("/alert.wav")) {
+          Serial.println("[Alert] Playing local alert.wav from LittleFS");
+          localFile = new AudioFileSourceLittleFS("/alert.wav");
           wav = new AudioGeneratorWAV();
-          success = wav->begin(file, out);
+          success = wav->begin(localFile, out);
       } else {
-          mp3 = new AudioGeneratorMP3();
-          success = mp3->begin(file, out);
+          // Fallback to original network logic if file missing
+          const char* notifyUrl = doc["notification_url"];
+          const char* format = doc["notification_format"];
+          Serial.printf("[Alert] Local file missing. Fetching from network: %s\n", notifyUrl);
+          
+          String fullNotifyUrl = serverBase + String(notifyUrl);
+          file = new AudioFileSourceHTTPStream(fullNotifyUrl.c_str());
+          file->SetReconnect(0, 0); 
+
+          if (String(format) == "wav") {
+              wav = new AudioGeneratorWAV();
+              success = wav->begin(file, out);
+          } else {
+              mp3 = new AudioGeneratorMP3();
+              success = mp3->begin(file, out);
+          }
       }
 
       if (success) {
@@ -739,6 +774,13 @@ void setup() {
   }
 
   Serial.print("Configured (primary) SSID: "); Serial.println(hotspot_ssid);
+
+  // --- Init LittleFS for local audio caching ---
+  if(!LittleFS.begin()){
+      Serial.println("LittleFS Mount Failed");
+  } else {
+      Serial.println("LittleFS Mounted Successfully");
+  }
 
   // --- Init sensors and audio ---
   // sensors.begin(); // Disabled for now

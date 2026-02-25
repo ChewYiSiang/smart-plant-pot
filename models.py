@@ -16,8 +16,8 @@ class Device(SQLModel, table=True):
 
 class SensorReading(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    device_id: str = Field(foreign_key="device.id")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    device_id: str = Field(foreign_key="device.id", index=True)
+    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
     temperature: float
     moisture: float
     light: float

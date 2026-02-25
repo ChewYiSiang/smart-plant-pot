@@ -162,7 +162,6 @@ async def ingest_data(
     # 0. Handle Sensor Data Prioritization (Physical Pot vs Simulator)
     used_hardware_data = False
     if getattr(device, "is_simulator", False):
-        from sqlalchemy import select
         ten_mins_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
 
         # Look for the most recent reading from ANY hardware device (is_simulator=False)
@@ -234,40 +233,35 @@ async def ingest_data(
                 .order_by(SensorReading.timestamp.desc())
                 .limit(1)
             )
-            physical_device = session.exec(statement).first()
+            # Find the physical device the user is actually using
+            physical_device = session.get(Device, "s3_devkitc_plant_pot")
+            
+            # If not found, fall back to any active hardware device
+            if not physical_device:
+                physical_device = session.exec(statement).first()
+            
+            # Last resort: find ANY physical device
+            if not physical_device:
+                physical_device = session.exec(select(Device).where(Device.is_simulator == False).limit(1)).first()
+
             if physical_device:
-                print(f"🔥 [TRACE] Found Active Physical Device: {physical_device.id}. Propagating Alert...")
-                alert_reading = SensorReading(
+                # Propagation: Add reading directly for the physical device
+                session.add(SensorReading(
                     device_id=physical_device.id,
                     temperature=temperature,
                     moisture=10.0,
                     light=light,
                     event="remote_simulator_alert"
-                )
-                session.add(alert_reading)
-                print(f"✅ [TRACE] Alert reading added to session for {physical_device.id}")
+                ))
+                print(f"✅ [TRACE] Alert propagated to {physical_device.id}")
             else:
-                # Fallback to the first found physical device if no recent activity
-                print(f"🔍 [TRACE] No active physical device found in last 10m. Searching for ANY physical device...")      
-                statement = select(Device).where(Device.is_simulator == False).limit(1)
-                physical_device = session.exec(statement).first()
-                if physical_device:
-                    print(f"🔥 [TRACE] Falling back to physical device {physical_device.id}")
-                    alert_reading = SensorReading(
-                        device_id=physical_device.id,
-                        temperature=temperature,
-                        moisture=10.0,
-                        light=light,
-                        event="remote_simulator_alert"
-                    )
-                    session.add(alert_reading)
-                    print(f"✅ [TRACE] Fallback alert reading added to session for {physical_device.id}")
-                else:
-                    print(f"❌ [TRACE] NO PHYSICAL DEVICES FOUND IN DATABASE AT ALL!")
+                print(f"🔍 [TRACE] No physical devices found to propagate alert to.")
 
         session.commit()
         print(f"💾 [TRACE] Session Committed successfully.")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"WARNING: Could not log sensor reading: {e}")
 
     # 3. Handle STT (Only if user_query not provided)
@@ -374,7 +368,7 @@ async def ingest_data(
     content = {
         "user_query": user_query,
         "reply_text": reply_text,
-        "audio_url": f"/v1/audio/stream/{convo.id}",
+        "audio_url": f"/v1/audio/stream/{convo.id}" if convo.id != 9999 else None,
         "notification_url": notification_url,
         "display": {
             "mood": mood,
@@ -387,7 +381,8 @@ async def ingest_data(
     if device_id == "pot_simulator_001":
         # Target the physical device (s3_devkitc_plant_pot)
         physical_device = session.get(Device, "s3_devkitc_plant_pot")
-        if physical_device:
+        # ONLY flag if this is a real vocal response (not the silent 9999 ghost ID)
+        if physical_device and convo.id != 9999:
             physical_device.pending_audio_id = convo.id
             session.add(physical_device)
             session.commit()
@@ -420,17 +415,22 @@ async def poll_for_audio(device_id: str, session: Session = Depends(get_session)
         session.commit()
 
     # 2. Check for Low Moisture Notification
-    ten_mins_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
+    one_hour_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
 
-    statement = select(SensorReading).where(
-        SensorReading.device_id == device_id,
-        SensorReading.timestamp >= ten_mins_ago,
-        or_(
-            SensorReading.moisture < 20.0,
-            SensorReading.event == "low_moisture_alert",
-            SensorReading.event == "remote_simulator_alert"
+    # Query only for the most recent alert event within the window
+    statement = (
+        select(SensorReading)
+        .where(
+            SensorReading.device_id == device_id,
+            SensorReading.timestamp >= one_hour_ago,
+            or_(
+                SensorReading.moisture < 20.0,
+                SensorReading.event.in_(["low_moisture_alert", "remote_simulator_alert"])
+            )
         )
-    ).order_by(SensorReading.timestamp.desc()).limit(1)
+        .order_by(SensorReading.timestamp.desc())
+        .limit(1)
+    )
 
     last_reading = session.exec(statement).first()
     notification_url = None
