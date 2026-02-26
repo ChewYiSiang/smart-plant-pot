@@ -24,7 +24,7 @@ class SpeechSynthesisService:
         # Build the voice request - Neural2 is crisp and clear for hardware
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
-            name="en-US-Neural2-F"
+            name="en-US-Neural2-H"
         )
 
         # Select the type of audio file you want returned
@@ -38,9 +38,14 @@ class SpeechSynthesisService:
         )
 
         # Perform the text-to-speech request
+        print(f"DEBUG: [TTS] Requesting synthesis for: {text[:30]}...")
         response = self.client.synthesize_speech(
             input=synthesis_input, voice=voice, audio_config=audio_config
         )
+
+        if not response.audio_content:
+            print("ERROR: [TTS] Synthesis returned empty content.")
+            raise Exception("Empty audio content from Google TTS")
 
         # Ensure directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -63,7 +68,7 @@ class SpeechSynthesisService:
         
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
-            name="en-US-Neural2-F"
+            name="en-US-Neural2-H"
         )
         
         audio_config = texttospeech.AudioConfig(
@@ -79,4 +84,8 @@ class SpeechSynthesisService:
             input=synthesis_input, voice=voice, audio_config=audio_config
         )
         
+        if not response.audio_content:
+            print("ERROR: [TTS] synthesize_stream returned empty content.")
+            return b""
+
         return response.audio_content

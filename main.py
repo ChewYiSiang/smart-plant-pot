@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query, Form, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Query, Form, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
@@ -100,44 +100,44 @@ async def archive_conversation_task(device_id: str, transcription: str, ai_respo
 
 @app.get("/v1/audio/stream/{convo_id}")
 async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
-    """Streams the entire audio response in ONE SHOT to ensure header integrity."""
+    """Synthesizes and delivers the entire audio response with fixed Content-Length."""
     convo = session.get(Conversation, convo_id)
     if not convo:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    async def audio_stream_generator():
-        import asyncio
-        tts = SpeechSynthesisService()
+    from fastapi import Response
+    from services.speech_synthesis import SpeechSynthesisService
+    tts = SpeechSynthesisService()
 
-        # [MODIFIED] -2.0dB - The "Goldilocks" middle ground between too soft and muffled
-        VOL_GAIN = -2.0
+    # [MODIFIED] -2.0dB - The "Goldilocks" middle ground between too soft and muffled
+    VOL_GAIN = -2.0
 
-        reply_text = convo.ai_response or ""
-        if not reply_text.strip():
-            print("WARNING: [Stream] Nothing to synthesize.")
-            return
+    reply_text = convo.ai_response or ""
+    if not reply_text.strip():
+        print("WARNING: [Stream] Nothing to synthesize.")
+        return Response(content=b"", media_type="audio/mpeg")
 
-        print(f"DEBUG: [Stream] One-Shot Synthesis for Convo {convo_id}: {reply_text[:50]}...")
+    print(f"DEBUG: [Stream] One-Shot Synthesis for Convo {convo_id}: {reply_text[:50]}...")
 
-        try:
-            # [ONE-SHOT] Synthesize the entire response at once.
-            # This ensures only ONE MP3 header is sent, eliminating transition static.
-            audio = await tts.synthesize_stream(reply_text, volume_gain_db=VOL_GAIN)
+    try:
+        # [ONE-SHOT] Synthesize the entire response at once into a buffer.
+        audio = await tts.synthesize_stream(reply_text, volume_gain_db=VOL_GAIN)
 
-            if audio:
-                print(f"DEBUG: [Stream] Synthesis complete. Delivering {len(audio)} bytes.")
-                # Yield in chunks for network stability
-                CHUNK_SIZE = 8192
-                for i in range(0, len(audio), CHUNK_SIZE):
-                    yield audio[i : i + CHUNK_SIZE]
-                    await asyncio.sleep(0.01) # Yield control
-            else:
-                print("ERROR: [Stream] Synthesis returned NO AUDIO.")
+        if audio:
+            print(f"DEBUG: [Stream] Synthesis complete. Delivering {len(audio)} bytes with fixed length.")
+            # Return as a standard Response (disables chunked encoding)
+            return Response(
+                content=audio,
+                media_type="audio/mpeg",
+                headers={"Content-Length": str(len(audio))}
+            )
+        else:
+            print("ERROR: [Stream] Synthesis returned NO AUDIO.")
+            raise HTTPException(status_code=500, detail="Synthesis failed")
 
-        except Exception as e:
-            print(f"ERROR: [Stream] Failed during one-shot synthesis: {e}")
-
-    return StreamingResponse(audio_stream_generator(), media_type="audio/mpeg")
+    except Exception as e:
+        print(f"ERROR: [Stream] Failed during synthesis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/ingest")
 async def ingest_data(
@@ -312,8 +312,9 @@ async def ingest_data(
         from agents.conversation_agent import ConversationAgent
         agent = ConversationAgent()
 
-        sensor_text = f"Temp: {temperature}, Moisture: {moisture}, Light: {light}" if is_sensor_query else "Not requested." 
-        know_text = f"{local_knowledge.biological_info} {local_knowledge.care_tips}" if local_knowledge else "No local data found."
+        # Always provide sensor data and rich botanical context (including lore)
+        sensor_text = f"Temp: {temperature:.1f}C, Moisture: {moisture:.1f}%, Light: {light:.1f}%"
+        know_text = f"Biology: {local_knowledge.biological_info}\nCare: {local_knowledge.care_tips}\nLore/Identity: {local_knowledge.lore}" if local_knowledge else "No local data found."
 
         state = {
             "device_id": device_id,
@@ -358,7 +359,6 @@ async def ingest_data(
     # 7. Return Full JSON
 
     # 7. Return Full JSON
-    from fastapi import Response
     import json
 
     notification_url = None
@@ -498,16 +498,6 @@ def serve_notification_sound(filename_prefix: str, default_priority_exts: list =
 async def get_low_moisture_notification():
     """Serves the low moisture notification sound (priority: alert.wav)."""
     return serve_notification_sound("alert")
-
-@app.get("/v1/audio/notification/record-start")
-async def get_record_start_notification():
-    """Serves the record start sound (priority: record_start.wav)."""
-    return serve_notification_sound("record_start")
-
-@app.get("/v1/audio/notification/record-stop")
-async def get_record_stop_notification():
-    """Serves the record stop sound (priority: record_stop.wav)."""
-    return serve_notification_sound("record_stop")
 @app.get("/v1/history")
 async def get_history(device_id: str = "pot_simulator_001", session: Session = Depends(get_session)):
     statement = select(Conversation).where(Conversation.device_id == device_id).order_by(Conversation.timestamp.desc()).limit(10)

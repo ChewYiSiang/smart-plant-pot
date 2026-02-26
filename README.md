@@ -242,10 +242,10 @@ const char* deviceId = "s3_devkitc_plant_pot";
 #define I2S_SPEAKER_BCLK 7
 #define I2S_SPEAKER_LRC 6
 #define I2S_SPEAKER_DIN 5
-#define I2S_MIC_SD 16
+#define I2S_MIC_SD 2
 #define I2S_MIC_WS 17
 #define I2S_MIC_SCK 18
-#define I2S_SPEAKER_SD 2 // Hardware Shutdown Pin
+#define I2S_SPEAKER_SD 40 // Hardware Shutdown Pin
 
 DHT dht(DHTPIN, DHTTYPE);
 unsigned long lastDhtReadTime = 0;
@@ -305,53 +305,7 @@ String getWiFiStatus(wl_status_t status) {
   }
 }
 
-void playSyncNotification(String type) {
-    String serverBase = String(serverUrl).substring(0, String(serverUrl).indexOf("/v1/ingest"));
-    String notifyUrl = serverBase + "/v1/audio/notification/" + type;
-    String localPath = "/" + type + ".wav";
-    
-    Serial.printf("[SyncAlert] Playing %s...\n", type.c_str());
-    
-    if (mp3 && mp3->isRunning()) mp3->stop();
-    if (wav && wav->isRunning()) wav->stop();
-    if (file) { delete file; file = NULL; }
-    if (mp3) { delete mp3; mp3 = NULL; }
-    if (wav) { delete wav; wav = NULL; }
-    
-    // Speaker object 'out' is PERSISTENT. Do not delete or re-init.
-    out->SetGain(0.0);
-    digitalWrite(I2S_SPEAKER_SD, HIGH); // Enable hardware
-    
-    bool started = false;
-    AudioFileSourceLittleFS *localSource = NULL;
 
-    if (LittleFS.exists(localPath)) {
-        localSource = new AudioFileSourceLittleFS(localPath.c_str());
-        wav = new AudioGeneratorWAV();
-        started = wav->begin(localSource, out);
-    } else {
-        file = new AudioFileSourceHTTPStream(notifyUrl.c_str());
-        file->SetReconnect(0, 0);
-        wav = new AudioGeneratorWAV();
-        started = wav->begin(file, out);
-    }
-
-    if (started) {
-        delay(100); 
-        out->SetGain(0.6); 
-        while (wav->isRunning()) {
-            if (!wav->loop()) { wav->stop(); break; }
-            yield(); 
-        }
-        out->SetGain(0.0); 
-    }
-    digitalWrite(I2S_SPEAKER_SD, LOW); // Mute hardware
-
-    // Cleanup generators but NOT 'out'
-    if (wav) { delete wav; wav = NULL; }
-    if (localSource) { delete localSource; localSource = NULL; }
-    if (file) { delete file; file = NULL; }
-}
 
 void checkExternalAudio() {
   if (isPlaying || audioBuffer != NULL) return; // Don't poll while busy/recording
@@ -479,7 +433,10 @@ void sendData(float temp, float moisture, float light, uint8_t* audioData, size_
           "&moisture=" + String(moisture, 2) + 
           "&light=" + String(light, 2);
 
-  Serial.printf("Connecting to %s:%d...\n", host.c_str(), port);
+  Serial.printf("\n--- [SEND DATA] ---\n");
+  Serial.printf("  Temp: %.1f, Moisture: %.1f, Light: %.1f\n", temp, moisture, light);
+  Serial.printf("  Audio Size: %d bytes\n", audioSize);
+  Serial.printf("  Connecting to %s:%d...\n", host.c_str(), port);
   client.setTimeout(10000); // 10 seconds timeout for slow hotspots
   
   if (!client.connect(host.c_str(), port)) {
@@ -670,7 +627,12 @@ void loop() {
     lastDhtReadTime = millis();
     temp = dht.readTemperature();
     humidity = dht.readHumidity();
-    if (isnan(temp)) temp = 25.0;
+    if (isnan(temp)) {
+        Serial.println("Warning: DHT11 Read Failed!");
+        temp = 25.0;
+    } else {
+        Serial.printf("Sensor Update - Temp: %.1f°C, Humidity: %.1f%%\n", temp, humidity);
+    }
   }
 
   if (!isPlaying && (millis() - lastPollTime > pollInterval)) {
@@ -678,12 +640,10 @@ void loop() {
     checkExternalAudio();
   }
 
-  if (Serial.available() && !isPlaying) {
+    if (Serial.available() && !isPlaying) {
     if (Serial.read() == 's') {
-      playSyncNotification("record-start");
       size_t actualSize = recordAudio(); 
       if (actualSize > WAV_HEADER_SIZE) {
-          playSyncNotification("record-stop");
           sendData(temp, 400, 5.0, audioBuffer, actualSize); // 400 is dummy moisture
       }
       while(Serial.available()) Serial.read(); 
