@@ -149,15 +149,14 @@ To build the physical Smart Plant Pot, you will need:
 
 | Component | ESP32-S3 Pin | Note |
 | :--- | :--- | :--- |
-| **DS18B20 (Data)** | GPIO 4 | Requires 4.7kΩ pull-up to 3.3V |
-| **Soil Moisture (Aout)**| GPIO 1 | Analog Input (ADC1_CH0) |
-| **I2S Mic (SCK)** | GPIO 12 | Safe Pin (not PSRAM) |
-| **I2S Mic (WS)** | GPIO 11 | Safe Pin (not PSRAM) |
-| **I2S Mic (SD)** | GPIO 10 | Safe Pin (not PSRAM) |
-| **MAX98357A (BCLK)** | GPIO 5 | Bit Clock |
-| **MAX98357A (LRC)** | GPIO 6 | Word Select / LR Clock |
-| **MAX98357A (DIN)** | GPIO 7 | Data In |
-| **Status LED** | GPIO 13, 14, 15 | RGB LED |
+| **DS18B20 (Data)** | GPIO 4 | Temp/Humidity (4.7kΩ pull-up required) |
+| **I2S Mic (SCK)** | GPIO 18 | Clock (Isolated Port 1) |
+| **I2S Mic (WS)** | GPIO 17 | Word Select (Isolated Port 1) |
+| **I2S Mic (SD)** | GPIO 16 | Data In (Isolated Port 1) |
+| **MAX98357A (BCLK)** | GPIO 7 | I2S Clock (Port 0) |
+| **MAX98357A (LRC)** | GPIO 6 | Word Select (Port 0) |
+| **MAX98357A (DIN)** | GPIO 5 | Data In (Port 0) |
+| **MAX98357A (SD)** | GPIO 2 | Hardware Shutdown (Force Silence) |
 
 ### 1a. Low-Latency Audio Optimization (LittleFS)
 To eliminate the ~1s delay when playing notification sounds, you can store the sound files locally on the ESP32.
@@ -197,7 +196,6 @@ lib_deps =
     WiFi
     HTTPClient
     bblanchon/ArduinoJson @ ^6.21.3
-    esphome/ESP32-audioI2S @ ^2.0.7
     adafruit/DHT sensor library @ 1.4.6
     adafruit/Adafruit Unified Sensor @ 1.1.14
 build_flags =
@@ -215,12 +213,12 @@ board_build.partitions = huge_app.csv
 ```cpp
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiMulti.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <esp_wifi.h>
+#include <FS.h>
 #include <LittleFS.h>
+#include <esp_wifi.h>
 #include "AudioFileSourceHTTPStream.h"
 #include "AudioFileSourceLittleFS.h"
 #include "AudioGeneratorMP3.h"
@@ -241,15 +239,13 @@ const char* deviceId = "s3_devkitc_plant_pot";
 #define DHTPIN 4
 #define DHTTYPE DHT11
 #define MOISTURE_PIN 1
-#define I2S_SPEAKER_BCLK 5
+#define I2S_SPEAKER_BCLK 7
 #define I2S_SPEAKER_LRC 6
-#define I2S_SPEAKER_DIN 7
-#define I2S_MIC_SD 10
-#define I2S_MIC_WS 11
-#define I2S_MIC_SCK 12
-#define LED_RED 14
-#define LED_GREEN 13
-#define LED_BLUE 15
+#define I2S_SPEAKER_DIN 5
+#define I2S_MIC_SD 16
+#define I2S_MIC_WS 17
+#define I2S_MIC_SCK 18
+#define I2S_SPEAKER_SD 2 // Hardware Shutdown Pin
 
 DHT dht(DHTPIN, DHTTYPE);
 unsigned long lastDhtReadTime = 0;
@@ -310,34 +306,30 @@ String getWiFiStatus(wl_status_t status) {
 }
 
 void playSyncNotification(String type) {
-    // 1. Setup clean state
     String serverBase = String(serverUrl).substring(0, String(serverUrl).indexOf("/v1/ingest"));
     String notifyUrl = serverBase + "/v1/audio/notification/" + type;
     String localPath = "/" + type + ".wav";
     
-    Serial.printf("[SyncAlert] Checking for %s...\n", type.c_str());
+    Serial.printf("[SyncAlert] Playing %s...\n", type.c_str());
     
     if (mp3 && mp3->isRunning()) mp3->stop();
     if (wav && wav->isRunning()) wav->stop();
     if (file) { delete file; file = NULL; }
     if (mp3) { delete mp3; mp3 = NULL; }
     if (wav) { delete wav; wav = NULL; }
-    if (out) { delete out; out = NULL; }
-
-    out = new AudioOutputI2S();
-    out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
+    
+    // Speaker object 'out' is PERSISTENT. Do not delete or re-init.
     out->SetGain(0.0);
+    digitalWrite(I2S_SPEAKER_SD, HIGH); // Enable hardware
     
     bool started = false;
     AudioFileSourceLittleFS *localSource = NULL;
 
     if (LittleFS.exists(localPath)) {
-        Serial.printf("[SyncAlert] Using local file: %s\n", localPath.c_str());
         localSource = new AudioFileSourceLittleFS(localPath.c_str());
         wav = new AudioGeneratorWAV();
         started = wav->begin(localSource, out);
     } else {
-        Serial.printf("[SyncAlert] Local file missing, falling back to network: %s\n", notifyUrl.c_str());
         file = new AudioFileSourceHTTPStream(notifyUrl.c_str());
         file->SetReconnect(0, 0);
         wav = new AudioGeneratorWAV();
@@ -345,21 +337,20 @@ void playSyncNotification(String type) {
     }
 
     if (started) {
-        out->SetGain(0.6);
+        delay(100); 
+        out->SetGain(0.6); 
         while (wav->isRunning()) {
-            if (!wav->loop()) {
-                wav->stop();
-                break;
-            }
+            if (!wav->loop()) { wav->stop(); break; }
+            yield(); 
         }
-        Serial.printf("[SyncAlert] %s finished.\n", type.c_str());
+        out->SetGain(0.0); 
     }
+    digitalWrite(I2S_SPEAKER_SD, LOW); // Mute hardware
 
-    // Cleanup
+    // Cleanup generators but NOT 'out'
     if (wav) { delete wav; wav = NULL; }
     if (localSource) { delete localSource; localSource = NULL; }
     if (file) { delete file; file = NULL; }
-    if (out) { delete out; out = NULL; }
 }
 
 void checkExternalAudio() {
@@ -385,21 +376,17 @@ void checkExternalAudio() {
       Serial.println("[Poll] Data found in response!");
     }
 
-    // 1. Handle Voice/Simulator Pending Audio
     if (!doc["convo_id"].isNull()) {
-      const char* audioUrl = doc["audio_url"];
-      Serial.printf("[Simulator] Voice Request: %s\n", audioUrl);
-      
-      globalAudioUrl = serverBase + String(audioUrl);
+      const char* vUrl = doc["audio_url"].as<const char*>();
+      Serial.printf("[Simulator] Voice Request: %s\n", vUrl);
+      globalAudioUrl = serverBase + String(vUrl);
       
       if (mp3 && mp3->isRunning()) mp3->stop();
       if (file) { delete file; file = NULL; }
       if (mp3) { delete mp3; mp3 = NULL; }
-      if (out) { delete out; out = NULL; }
 
-      out = new AudioOutputI2S();
-      out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
       out->SetGain(0.0);
+      digitalWrite(I2S_SPEAKER_SD, HIGH); 
       file = new AudioFileSourceHTTPStream(globalAudioUrl.c_str());
       file->SetReconnect(0, 0); 
       mp3 = new AudioGeneratorMP3();
@@ -411,34 +398,26 @@ void checkExternalAudio() {
       }
     }
 
-    // 2. Handle Low Moisture Notification (Optimized: Check flash for local alert.wav)
     if (!doc["notification_url"].isNull() && !isPlaying) {
-      Serial.println("[Alert] Triggering Sound Check (Local vs Network)...");
-      
       if (mp3 && mp3->isRunning()) mp3->stop();
       if (wav && wav->isRunning()) wav->stop();
       if (file) { delete file; file = NULL; }
       if (mp3) { delete mp3; mp3 = NULL; }
       if (wav) { delete wav; wav = NULL; }
-      if (out) { delete out; out = NULL; }
 
-      out = new AudioOutputI2S();
-      out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
       out->SetGain(0.0);
+      digitalWrite(I2S_SPEAKER_SD, HIGH);
       
       bool success = false;
       AudioFileSourceLittleFS *localFile = NULL;
 
       if (LittleFS.exists("/alert.wav")) {
-          Serial.println("[Alert] Playing local alert.wav from LittleFS");
           localFile = new AudioFileSourceLittleFS("/alert.wav");
           wav = new AudioGeneratorWAV();
           success = wav->begin(localFile, out);
       } else {
-          // Fallback to original network logic if file missing
-          const char* notifyUrl = doc["notification_url"];
-          const char* format = doc["notification_format"];
-          Serial.printf("[Alert] Local file missing. Fetching from network: %s\n", notifyUrl);
+          const char* notifyUrl = doc["notification_url"].as<const char*>();
+          const char* format = doc["notification_format"].as<const char*>();
           
           String fullNotifyUrl = serverBase + String(notifyUrl);
           file = new AudioFileSourceHTTPStream(fullNotifyUrl.c_str());
@@ -461,7 +440,6 @@ void checkExternalAudio() {
       }
     }
   } else {
-    // Only print errors for debugging connections
     if (httpCode != -1) Serial.printf("[Poll] Error: %d\n", httpCode);
   }
   http.end();
@@ -568,73 +546,45 @@ void sendData(float temp, float moisture, float light, uint8_t* audioData, size_
         StaticJsonDocument<512> doc;
         DeserializationError error = deserializeJson(doc, payload);
         if (!error) {
-            const char* audioUrl = doc["audio_url"];
+            const char* aUrl = doc["audio_url"].as<const char*>();
             String serverBase = "http://" + host + ":" + String(port);
-            globalAudioUrl = serverBase + String(audioUrl); 
-            Serial.printf("Plant is responding: %s\n", globalAudioUrl.c_str());
+            globalAudioUrl = serverBase + String(aUrl); 
             
-            // --- CRITICAL: Stop current objects before new allocation ---
             if (mp3 && mp3->isRunning()) mp3->stop();
             if (file) { delete file; file = NULL; }
             if (mp3) { delete mp3; mp3 = NULL; }
-            if (out) { delete out; out = NULL; }
 
-            // Re-init Speaker output after I2S1 was used for Mic
-            out = new AudioOutputI2S();
-            out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
-            out->SetGain(0.0); // ANTI-POP
+            out->SetGain(0.0); 
+            digitalWrite(I2S_SPEAKER_SD, HIGH);
 
-            // Start playing the new response (MP3 is much better for streaming!)
-            Serial.printf("--- INITIATING GET REQUEST: %s ---\n", globalAudioUrl.c_str());
             file = new AudioFileSourceHTTPStream(globalAudioUrl.c_str());
-            // CRITICAL: Disable auto-reconnect. 
-            // We rely on the PRE-GENERATED 'hmm.mp3' for instant data. 
-            // If connection drops, we accept it (better than looping).
             file->SetReconnect(0, 0); 
-            
             mp3 = new AudioGeneratorMP3();
             if (mp3->begin(file, out)) {
-                Serial.println("MP3 Pipeline Started Success.");
-                isPlaying = true; // Block recording until this finished
-            } else {
-                Serial.println("MP3 Pipeline FAILED to Start.");
-                isPlaying = false; 
+                isPlaying = true;
+                delay(200); 
+                out->SetGain(0.8); 
             }
-            
-            delay(200); 
-            out->SetGain(0.8); 
-            Serial.println("DEBUG: Gain set to 0.8");
-        } else {
-            Serial.printf("JSON Parse Error: %s\n", error.c_str());
         }
     }
     client.stop();
 }
 
 size_t recordAudio() {
-    Serial.printf("\n--- MEMORY CHECK ---\n");
-    Serial.printf("Total Free Heap: %u bytes\n", ESP.getFreeHeap());
-    Serial.printf("Largest Free Block: %u bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-
-    // 1. Allocate buffer FIRST to ensure we have room before breaking I2S
     audioBuffer = (uint8_t*)malloc(audioBufferSize);
-    if (!audioBuffer) {
-        Serial.println("ERROR: Out of RAM! Try decreasing RECORD_TIME further.");
-        return 0;
-    }
-    memset(audioBuffer, 0, audioBufferSize); // Zero out buffer
+    if (!audioBuffer) return 0;
+    memset(audioBuffer, 0, audioBufferSize);
 
-    // 2. ONLY stop speaker if malloc succeeded
     if (mp3 && mp3->isRunning()) mp3->stop();
-    delay(200); 
-    i2s_driver_uninstall(I2S_NUM_0); 
+    out->SetGain(0.0); 
+    digitalWrite(I2S_SPEAKER_SD, LOW); // PHYSICALLY DISABLE SPEAKER
+    delay(100); 
 
-    // 3. Configure I2S for Mic
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
         .sample_rate = SAMPLE_RATE,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, // Swapped to RIGHT to rule out driver bug
+        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, 
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 8,
@@ -648,367 +598,119 @@ size_t recordAudio() {
         .data_in_num = I2S_MIC_SD
     };
 
-    esp_err_t err = i2s_driver_install(I2S_NUM_1, &i2s_config, 0, NULL);
-    if (err != ESP_OK) {
-        Serial.printf("I2S Driver Install Error: %d\n", err);
-        return 0;
-    }
+    i2s_driver_install(I2S_NUM_1, &i2s_config, 0, NULL);
     i2s_set_pin(I2S_NUM_1, &pin_config);
-    i2s_zero_dma_buffer(I2S_NUM_1); // Crucial: Clear DMA before starting
+    i2s_zero_dma_buffer(I2S_NUM_1);
 
-    digitalWrite(LED_GREEN, HIGH); // Turn on green LED
-    Serial.printf("--- RECORDING (%d Seconds) ---\n", RECORD_TIME);
-    Serial.println("Speak now...");
+    Serial.println("[Record] Started...");
     
     size_t bytes_read;
     uint32_t startTime = millis();
     int offset = WAV_HEADER_SIZE;
     int32_t raw_sample;
-    int debugCount = 0;
 
     while (millis() - startTime < (RECORD_TIME * 1000)) {
         if (offset + 2 >= audioBufferSize - BUFFER_PADDING) break;
-
         i2s_read(I2S_NUM_1, &raw_sample, 4, &bytes_read, portMAX_DELAY);
-        
-        // Use the top 16 bits of the 32-bit word (most robust for 24-bit INMP441)
         int16_t sample = (raw_sample >> 16); 
-        
-        // --- DEBUG: Print first 10 samples to check for signal ---
-        if (debugCount < 10 && bytes_read > 0) {
-            Serial.printf("Raw: 0x%08X | Sample: %d\n", raw_sample, sample);
-            debugCount++;
-        }
-
         audioBuffer[offset] = sample & 0xFF;
         audioBuffer[offset+1] = (sample >> 8) & 0xFF;
         offset += 2;
     }
 
-    // 4. Update WAV Header with EXACT size recorded
     generateWavHeader(audioBuffer, offset - WAV_HEADER_SIZE);
-
-    // Shutdown Mic I2S
     i2s_stop(I2S_NUM_1);
-    i2s_driver_uninstall(I2S_NUM_1); // Release I2S1 for Speaker
+    i2s_driver_uninstall(I2S_NUM_1); 
     
-    digitalWrite(LED_GREEN, LOW); // Turn off green LED
-    Serial.println("Recording Finished.");
-    Serial.println("Stabilizing Radio for 1s...");
-    delay(1000); // BREATHING ROOM: Allow radio to recover from I2S high-speed clocks
+    Serial.println("[Record] Finished.");
     return offset;
 }
 
 void setup() {
-  // --- ABSOLUTE TOP: Initialize Serial for Safe-Boot ---
-  Serial.begin(115200);
-  delay(2000); // CRITICAL: Wait for USB-CDC to initialize
-  Serial.println("\n\n[BOOT] Smart Plant Pot Starting...");
-  Serial.printf("[BOOT] Initial Free Heap: %u bytes\n", ESP.getFreeHeap());
+  pinMode(I2S_SPEAKER_SD, OUTPUT);
+  digitalWrite(I2S_SPEAKER_SD, LOW); // MUTE speaker immediately
   
-  // Initialize DHT sensor
+  pinMode(I2S_SPEAKER_DIN, OUTPUT);
+  digitalWrite(I2S_SPEAKER_DIN, LOW); // Prevent boot noise
+  
+  Serial.begin(115200);
+  delay(2000); 
+  Serial.println("\n[BOOT] Smart Plant Pot (Speaker Port 0 / Mic Port 1)");
+  
   dht.begin();
 
-  // --- CRITICAL: Stabilize radio BEFORE connection ---
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);    // Disable power save to prevent AUTH_EXPIRE
-  // WiFi.setTxPower(WIFI_POWER_13dBm); // Let ESP32 auto-negotiate power for mejor handshake stability
-  
-  // Force WPA2/Disable Power Save to avoid iPhone WPA3/PMF transition issues
-  // This is a common fix for "Reason: 2 - AUTH_EXPIRE"
+  WiFi.setSleep(false);
   esp_wifi_set_ps(WIFI_PS_NONE);
-  
-  delay(2000); // Increased stabilization delay
-
-  Serial.println("\n=== WiFi Debugging Info ===");
-  Serial.printf("Free Heap: %u bytes\n", ESP.getFreeHeap());
-
-  // --- Scan available networks (Disabled for speed) ---
-  Serial.println("WiFi Scan skipped for speed.");
-
-  // --- Configure WiFi ---
-  Serial.println("\n=== WiFi Connection Attempt ===");
-  WiFi.disconnect(true);
-  delay(500);
-
-  Serial.print("Connecting to: '"); Serial.print(hotspot_ssid);
-  Serial.print("' with password: "); Serial.println(hotspot_pass);
+  delay(1000);
   
   WiFi.begin(hotspot_ssid, hotspot_pass);
+  Serial.print("Connecting to WiFi...");
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.println("\nCONNECTED!");
 
-
-  Serial.println("\nConnecting... (timeout: 40sec)");
-
-  unsigned long startTime = millis();
-  unsigned long timeout = 40000; // 40 seconds
-  int attemptCount = 0;
-
-  while (WiFi.status() != WL_CONNECTED && (millis() - startTime < timeout)) {
-    attemptCount++;
-
-    // Print detailed info every 4 attempts (every 2 seconds)
-    if (attemptCount % 4 == 0) {
-      Serial.print("Attempt "); Serial.print(attemptCount);
-      Serial.print(" | Status: "); Serial.print(getWiFiStatus(WiFi.status()));
-      Serial.print(" | RSSI: "); Serial.print(WiFi.RSSI()); Serial.println(" dBm");
-    } else {
-      Serial.print("."); // keep showing activity
-    }
-
-    delay(500);
-  }
-
-  // Check final result
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi Connected!");
-    Serial.print("Connected SSID: "); Serial.println(WiFi.SSID());
-    Serial.print("IP Address: "); Serial.println(WiFi.localIP());
-    Serial.print("Signal Strength: "); Serial.print(WiFi.RSSI()); Serial.println(" dBm");
-  } else {
-    Serial.println("\nWiFi Connection FAILED!");
-    Serial.print("Final Status: "); Serial.println(getWiFiStatus(WiFi.status()));
-    Serial.println("Troubleshooting:");
-    Serial.print("  - Expected SSID: '"); Serial.print(hotspot_ssid); Serial.println("'");
-    Serial.println("  - Ensure hotspot is ON and using 2.4 GHz (ESP32-S3 cannot use 5 GHz)");
-    Serial.println("  - Check spelling and password in secrets.h");
-  }
-
-  Serial.print("Configured (primary) SSID: "); Serial.println(hotspot_ssid);
-
-  // --- Init LittleFS for local audio caching ---
-  if(!LittleFS.begin()){
-      Serial.println("LittleFS Mount Failed");
-  } else {
-      Serial.println("LittleFS Mounted Successfully");
-  }
-
-  // --- Init sensors and audio ---
-  // sensors.begin(); // Disabled for now
-  out = new AudioOutputI2S();
+  if(!LittleFS.begin()) Serial.println("LittleFS Failed");
+  
+  // 1. Initialize Persistent Speaker on I2S Port 0
+  out = new AudioOutputI2S(0);
   out->SetPinout(I2S_SPEAKER_BCLK, I2S_SPEAKER_LRC, I2S_SPEAKER_DIN);
-  out->SetGain(0.0); // ANTI-POP: Build up clocks first
-  delay(100);
-  out->SetGain(0.5); 
-
-  // Initialize RGB LED
-  pinMode(LED_RED, OUTPUT);
-  pinMode(LED_GREEN, OUTPUT);
-  pinMode(LED_BLUE, OUTPUT);
-  digitalWrite(LED_RED, LOW);
-  digitalWrite(LED_GREEN, LOW);
-  digitalWrite(LED_BLUE, LOW);
+  out->SetGain(0.0);
+  out->begin();
+  
+  // 2. Reduce Drive Strength to dampen electrical screeching
+  gpio_set_drive_capability((gpio_num_t)I2S_SPEAKER_BCLK, GPIO_DRIVE_CAP_1);
+  gpio_set_drive_capability((gpio_num_t)I2S_SPEAKER_LRC,  GPIO_DRIVE_CAP_1);
+  gpio_set_drive_capability((gpio_num_t)I2S_SPEAKER_DIN,  GPIO_DRIVE_CAP_1);
+  
+  Serial.println("[BOOT] Audio Ready & Silent.");
 }
 
 void loop() {
-  // Read Sensors (Only every 3 seconds)
-  // temp and humidity are now global variables
-
   if (millis() - lastDhtReadTime > dhtInterval) {
     lastDhtReadTime = millis();
     temp = dht.readTemperature();
     humidity = dht.readHumidity();
-    
-    Serial.print("Raw Temp: "); Serial.println(temp);
-    Serial.print("Raw Humidity: "); Serial.println(humidity);
-    
-    if (isnan(temp) || isnan(humidity)) {
-      Serial.println("❌ FAILED to read from DHT sensor! Check wiring.");
-      temp = 25.0;
-    } else {
-      Serial.println("✅ DHT11 Read Success");
-    }
+    if (isnan(temp)) temp = 25.0;
   }
 
-  int moistureRaw = analogRead(MOISTURE_PIN);
-  float moisture = map(moistureRaw, 3000, 1000, 0, 100);
-  moisture = constrain(moisture, 0, 100); 
-
-  // Poll for external audio requests (e.g. from simulator)
-  if (millis() - lastPollTime > pollInterval) {
+  if (!isPlaying && (millis() - lastPollTime > pollInterval)) {
     lastPollTime = millis();
     checkExternalAudio();
   }
 
   if (Serial.available() && !isPlaying) {
     if (Serial.read() == 's') {
-      size_t actualSize = 0;
-      
-      // 1. Play Start Recording Sound
       playSyncNotification("record-start");
-      
-      // 2. recordAudio now returns the recorded payload size
-      actualSize = recordAudio(); 
-      
+      size_t actualSize = recordAudio(); 
       if (actualSize > WAV_HEADER_SIZE) {
-          // 3. Play Stop Recording Sound
           playSyncNotification("record-stop");
-          
-          Serial.println("Stabilizing WiFi before send...");
-          delay(100); // Shorter delay post-UI sound
-          sendData(temp, moisture, 5.0, audioBuffer, actualSize);
+          sendData(temp, 400, 5.0, audioBuffer, actualSize); // 400 is dummy moisture
       }
-      // Flush any accidental extra 's' presses
       while(Serial.available()) Serial.read(); 
     }
   }
 
-  // [FIXED] Proper Loop Handling
   if (isPlaying) {
-      bool running = false;
+      bool stillRunning = false;
       if (mp3 && mp3->isRunning()) {
-          if (!mp3->loop()) {
-              mp3->stop();
-              delete mp3; mp3 = NULL;
-          } else {
-              running = true;
-          }
+          if (!mp3->loop()) { mp3->stop(); delete mp3; mp3 = NULL; }
+          else stillRunning = true;
       }
       if (wav && wav->isRunning()) {
-          if (!wav->loop()) {
-              wav->stop();
-              delete wav; wav = NULL;
-          } else {
-              running = true;
-          }
+          if (!wav->loop()) { wav->stop(); delete wav; wav = NULL; }
+          else stillRunning = true;
       }
 
-      if (!running) {
-          Serial.println("Playback finished. Cleaning up objects.");
+      if (!stillRunning) {
+          out->SetGain(0.0); 
+          digitalWrite(I2S_SPEAKER_SD, LOW); // PHYSICALLY MUTE
+          isPlaying = false;
           if (file) { delete file; file = NULL; }
-          if (out) out->SetGain(0.0); // ANTI-POP
-          isPlaying = false; // Allow recording again
-          delay(1000); // 1s Debounce: Wait for radio noise to settle
-          while(Serial.available()) Serial.read(); // Clear any 's' pressed during play
-          Serial.println("--- READY FOR NEXT TALK ('s' to start) ---");
+          Serial.println("Playback finished.");
       }
   }
 }
 ```
-
-### Troubleshooting: No Serial Output
-If nothing is printed in the Monitor after uploading:
-
-1. **USB Cable**: Many cables are "Charge Only". Ensure you are using a **Data Sync** cable.
-2. **Baud Rate**: Ensure the **PlatformIO Serial Monitor** is set to `115200`. (Check `monitor_speed = 115200` in `platformio.ini`).
-3. **USB CDC On Boot**: Since the ESP32-S3 uses an internal USB Serial, you may need to add this to your `platformio.ini`:
-    ```ini
-    build_flags = 
-        -D ARDUINO_USB_MODE=1
-        -D ARDUINO_USB_CDC_ON_BOOT=1
-    ```
-### 6. Troubleshooting "No matching WiFi found"
-If the monitor says `[E] no matching wifi found!`:
-
-1. **iPhone Hotspot Name**: iPhone hotspots often use a curly apostrophe (**`’`**) instead of a straight one (**`'`**). Check your "Available networks" list in the Serial Monitor. If it says `Yi Siang’s iPhone`, update your `secrets.h` to match **exactly**.
-2. **Maximize Compatibility**: On your iPhone, go to **Settings -> Personal Hotspot** and turn on **"Maximize Compatibility"**. This is required to enable the 2.4GHz signal that the ESP32 uses.
-3. **SSID Case Sensitivity**: Ensure your `hotspot_ssid` in `secrets.h` matches the casing (e.g., `iPhone` vs `iphone`) seen in the scan results.
-4. **Distance**: Ensure your ESP32 is within 2 meters of your laptop/hotspot during setup.
-
-### 7. Troubleshooting "Reason: 2 - AUTH_EXPIRE"
-This means the iPhone timed out waiting for the ESP32 to authenticate.
-1. **Forget & Reset**: On your iPhone, go to **Settings -> WiFi**, find your hotspot (or your laptop's connection), and tap **"Forget This Network"**. Then toggle the Hotspot OFF and ON again.
-2. **Maximize Compatibility**: Double-check that **"Maximize Compatibility"** is ON. If it was already ON, try toggling it OFF and back ON.
-3. **Power Cycle**: Unplug the ESP32, wait 5 seconds, and plug it back in. Handshake errors often persist across soft-restarts.
-4. **SSID Simplification (Recommended)**: The curly apostrophe (**`’`**) is a nightmare for ESP32. If it still fails, change your iPhone name (**Settings -> General -> About -> Name**) to something simple like **`TestPot`** (no spaces, no symbols). This is the #1 way to fix all connection issues instantly.
-
-### 8. Troubleshooting "Reason: 202 - AUTH_FAIL"
-This is a standard "Wrong Password" or "Mismatched SSID" error.
-1. **SSID Exact Match**: Looking at your Serial log, your iPhone name is actually **`Yi Siang’s iPhone`**. Your code had `iphone` (lower case) and a straight `'`. You **MUST** copy the name exactly as it appears in the "Available networks" scan list.
-2. **Password Verification**: Re-type your password in `secrets.h` to ensure there are no trailing spaces or typos.
-
-### 9. Hardware Tip: Temperature says -127.00
-If your serial monitor shows `temperature=-127.00`:
-- **Wiring**: This means the ESP32 cannot find your DS18B20 sensor.
-- **Pull-up Resistor**: Ensure you have a **4.7kΩ resistor** between the `Data` pin (GPIO 1) and `3.3V`. Without this, the sensor won't communicate!
-
-### 10. CRITICAL: "FS.h: No such file or directory"
-If you still see the `FS.h` error after updating `platformio.ini`:
-1. **Delete `.pio` Folder**: Close VS Code, manually delete the `.pio` folder inside your project directory, and reopen VS Code. This forces PlatformIO to re-download and re-index all libraries.
-2. **Force LDF Mode**: Ensure `lib_ldf_mode = deep+` is set in your `platformio.ini`.
-3. **Core Version**: Ensure your PlatformIO ESP32 platform is up to date. You can update it by running `pio platform update espressif32` in the terminal.
-
-### 11. Troubleshooting: Silent Audio Recording
-If your device records silence (zero bytes or a flat-line waveform):
-1.  **Check INMP441 L/R Pin**: This pin must be connected to **GND** for `I2S_CHANNEL_FMT_ONLY_LEFT`. If it is unconnected, the microphone might not output any data.
-2.  **Software Channel Swap**: If wiring is correct, try changing this line in `src/main.cpp`:
-    *   **From**: `.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT`
-    *   **To**: `.channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT`
-    (Some ESP32-S3 driver versions have inverted channel mapping).
-3.  **Check Power**: Ensure the INMP441 is getting a clean 3.3V. Low voltage can cause the digital output to stay at zero.
-
-- **Audio Streaming Service**: Dynamic sentence-based speech synthesis with buffering.
-- **Mic Troubleshooting**: Utilities to verify the audio pipeline from capture to transcription.
-- **Status Indicators**: Support for Analog RGB LEDs to show recording states.
-
-## 🌈 Adding an RGB LED Status Indicator
-
-To show a **Green Light** during recording, follow these steps:
-
-### 1. Hardware Wiring
-Connect your Analog RGB LED (Common Cathode) to the following pins:
-
-| Color | ESP32-S3 Pin | Note |
-| :--- | :--- | :--- |
-| **Common (GND)** | GND | Longest pin usually |
-| **Red** | GPIO 14 | |
-| **Green** | GPIO 13 | Primary indicator for recording |
-| **Blue** | GPIO 15 | |
-
-*Note: Use 220Ω resistors in series with each color pin to prevent burning out the LED.*
-
-### 2. Software Setup
-Update your `src/main.cpp` with these definitions:
-
-```cpp
-// Add at the top of main.cpp
-#define LED_RED 14
-#define LED_GREEN 13
-#define LED_BLUE 15
-
-// Inside setup()
-pinMode(LED_RED, OUTPUT);
-pinMode(LED_GREEN, OUTPUT);
-pinMode(LED_BLUE, OUTPUT);
-
-// Turn off all at start
-digitalWrite(LED_RED, LOW);
-digitalWrite(LED_GREEN, LOW);
-digitalWrite(LED_BLUE, LOW);
-```
-
-Update `recordAudio()` to toggle the Green LED:
-
-```cpp
-// Inside recordAudio(), before starting the loop
-digitalWrite(LED_GREEN, HIGH); // Turn on green
-
-// Inside recordAudio(), after the recording loop ends
-digitalWrite(LED_GREEN, LOW); // Turn off green
-```
-
-## 🛠 Troubleshooting the Microphone/Audio
-
-If you are having trouble with audio ingestion or transcription, use the built-in troubleshooter:
-
-1. **Verify Backend is Running**:
-   ```bash
-   python main.py
-   ```
-2. **Run the Troubleshooter**:
-   ```bash
-   python tests/mic_troubleshoot.py
-   ```
-   This will test:
-   - Google API connectivity.
-   - Isolated transcription logic using existing recordings.
-   - Full-cycle ingestion (requires the server to be running).
-
-3. **Manual Window Recording Test**:
-   - Open Windows **Voice Recorder**.
-   - Record a short clip (e.g., "How is the soil moisture?").
-   - Save the file as `.wav`.
-   - Copy it to `audio_artifacts/s3_devkitc_plant_pot/uploads/test.wav`.
-   - Re-run `python tests/mic_troubleshoot.py` to verify it can transcribe your fresh recording.
 
 ## 🚀 Getting Started
 
