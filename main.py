@@ -139,6 +139,10 @@ async def stream_audio(convo_id: int, session: Session = Depends(get_session)):
         print(f"ERROR: [Stream] Failed during synthesis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/v1/health")
+async def health_check():
+    return {"status": "ok", "message": "Smart Plant Pot Backend is reachable"}
+
 @app.post("/v1/ingest")
 async def ingest_data(
     device_id: str,
@@ -162,16 +166,16 @@ async def ingest_data(
     # 0. Handle Sensor Data Prioritization (Physical Pot vs Simulator)
     used_hardware_data = False
     if getattr(device, "is_simulator", False):
-        ten_mins_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
+        # We increase the window to 30 minutes to be safe during troubleshooting
+        sync_window = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=30)
 
         # Look for the most recent reading from ANY hardware device (is_simulator=False)
-        # We join with device to check is_simulator flag
         statement = (
             select(SensorReading)
             .join(Device)
             .where(
                 Device.is_simulator == False,
-                SensorReading.timestamp >= ten_mins_ago
+                SensorReading.timestamp >= sync_window
             )
             .order_by(SensorReading.timestamp.desc())
             .limit(1)
@@ -180,22 +184,16 @@ async def ingest_data(
         recent_reading = session.exec(statement).first()
         if recent_reading:
             hw_device_id = getattr(recent_reading, "device_id", "Unknown")
-            print(f"DEBUG: Found recent hardware reading from {hw_device_id}. Overriding simulator sliders.")
+            hw_temp = getattr(recent_reading, "temperature", 0.0)
+            print(f"DEBUG: [OVERRIDE] Found HARDWARE data from {hw_device_id}!")
+            print(f"DEBUG: [OVERRIDE] Changing Temperature from {temperature:.1f}C (Slider) to {hw_temp:.1f}C (Hardware)")
 
             # Prioritize Hardware data if present
-            temperature = getattr(recent_reading, "temperature", temperature)
-            light = getattr(recent_reading, "light", light)
-
-            # Special logic for moisture: If hardware sensor says 0 (likely disconnected),
-            # fall back to simulator value so user can still test the flow.
-            hw_moisture = getattr(recent_reading, "moisture", 0.0)
-            if hw_moisture > 0.0:
-                print(f"  ℹ  Prioritizing hardware moisture: {hw_moisture}%")
-                moisture = hw_moisture
-            else:
-                print(f"  ⚠  Hardware moisture is 0% (disconnected?). Falling back to simulator slider: {moisture}%")       
-
+            # ONLY override temperature for simulators as per user request
+            temperature = hw_temp
             used_hardware_data = True
+        else:
+            print(f"DEBUG: [OVERRIDE] No hardware data found in last 30 mins. Using slider values.")
 
     # This is for testing with the simulator button even if real sensors are high.
     force_notification = (event == "low_moisture_alert")
@@ -370,6 +368,11 @@ async def ingest_data(
         "reply_text": reply_text,
         "audio_url": f"/v1/audio/stream/{convo.id}" if convo.id != 9999 else None,
         "notification_url": notification_url,
+        "actual_sensors": {
+            "temperature": temperature,
+            "moisture": moisture,
+            "light": light
+        },
         "display": {
             "mood": mood,
             "priority": priority
@@ -457,14 +460,33 @@ async def poll_for_audio(device_id: str, session: Session = Depends(get_session)
         else:
             print(f"  ℹ [Poll] Skipping already played alert (ID: {last_reading.id}) for {device_id}")
 
-    if not convo_id and not notification_url:
-        print(f"  💤 [Poll] No pending audio/alerts for {device_id}")
+    # 3. [NEW] For Simulators, provide a "Live Sync" with physical hardware
+    latest_sensors = None
+    if getattr(device, "is_simulator", False):
+        # Look for the absolute latest reading from ANY hardware device
+        hw_statement = (
+            select(SensorReading)
+            .join(Device)
+            .where(Device.is_simulator == False)
+            .order_by(SensorReading.timestamp.desc())
+            .limit(1)
+        )
+        hw_reading = session.exec(hw_statement).first()
+        if hw_reading:
+            latest_sensors = {
+                "temperature": hw_reading.temperature,
+                "timestamp": hw_reading.timestamp.isoformat()
+            }
+
+    if not convo_id and not notification_url and not latest_sensors:
+        print(f"  💤 [Poll] No pending audio/alerts/sync for {device_id}")
 
     return {
         "convo_id": convo_id,
         "audio_url": f"/v1/audio/stream/{convo_id}" if convo_id else None,
         "notification_url": notification_url,
-        "notification_format": notification_format
+        "notification_format": notification_format,
+        "latest_sensors": latest_sensors
     }
 
 def serve_notification_sound(filename_prefix: str, default_priority_exts: list = [".wav", ".mp3"]):

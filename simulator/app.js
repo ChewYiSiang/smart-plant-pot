@@ -286,6 +286,15 @@ function handlePlantResponse(data) {
 
     const chatContainer = document.getElementById('chat-container');
 
+    // 0. Update Sliders with Actual Backend Values (Hardware Overrides)
+    if (data.actual_sensors) {
+        if (data.actual_sensors.temperature !== undefined) {
+            console.log("Response Sync: Updating temp to", data.actual_sensors.temperature);
+            tempSlider.value = data.actual_sensors.temperature;
+            tempVal.innerText = `${data.actual_sensors.temperature.toFixed(1)}°C`;
+        }
+    }
+
     // 1. Add User Message (Transcription)
     const userDiv = document.createElement('div');
     userDiv.className = 'message user-message';
@@ -349,6 +358,55 @@ function handlePlantResponse(data) {
     };
 }
 
+async function startPolling() {
+    console.log("Starting background sensor/audio poll...");
+
+    const poll = async () => {
+        try {
+            const response = await fetch('/v1/device/pot_simulator_001/poll');
+            const data = await response.json();
+
+            // 1. Sync Hardware Sensors (Temperature only as per user request)
+            if (data.latest_sensors && data.latest_sensors.temperature !== undefined) {
+                console.log("Syncing with live hardware temperature:", data.latest_sensors.temperature);
+
+                // Update UI Slider & Label
+                tempSlider.value = data.latest_sensors.temperature;
+                tempVal.innerText = `${data.latest_sensors.temperature.toFixed(1)}°C`;
+            }
+
+            // 2. Auto-Play Notifications (e.g. Low Moisture)
+            if (data.notification_url) {
+                console.log("Poll found pending alert:", data.notification_url);
+                const alertAudio = new Audio(data.notification_url);
+                alertAudio.play().catch(e => console.warn("Auto-alert blocked by browser:", e));
+            }
+
+            // 3. Auto-Play Voice Responses
+            if (data.audio_url) {
+                console.log("Poll found pending voice:", data.audio_url);
+                // If we're not currently talking, play it!
+                if (!plantAvatar.classList.contains('face-talking')) {
+                    handlePlantResponse({
+                        id: data.convo_id,
+                        audio_url: data.audio_url,
+                        reply_text: "...",
+                        display: { mood: 'neutral' }
+                    });
+                }
+            }
+
+        } catch (e) {
+            console.error("Poll failed:", e);
+        }
+
+        // Schedule next poll
+        setTimeout(poll, 5000); // 5 second heartbeat
+    };
+
+    poll();
+}
+
 async function sendTextQuery() {
     const query = textQueryInput.value.trim();
     if (!query) return;
@@ -377,3 +435,6 @@ async function sendTextQuery() {
         statusBadge.innerText = 'Error';
     }
 }
+
+// Start the polling loop when the page loads
+startPolling();

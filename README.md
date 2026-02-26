@@ -644,7 +644,7 @@ void loop() {
     if (Serial.read() == 's') {
       size_t actualSize = recordAudio(); 
       if (actualSize > WAV_HEADER_SIZE) {
-          sendData(temp, 400, 5.0, audioBuffer, actualSize); // 400 is dummy moisture
+          sendData(temp, 0.0, 0.0, audioBuffer, actualSize); // Moisture/Light not using real sensors yet
       }
       while(Serial.available()) Serial.read(); 
     }
@@ -730,17 +730,31 @@ How to tell if your hardware is correctly communicating with the backend:
 ### 6. Monitor Logs
 Check the backend terminal to see the incoming requests from the ESP32 and the AI agent's decision-making process.
 
-## Hardware Integration Guide
+## 🛠 Troubleshooting: Connection Refused
 
-To connect your real ESP32 sensors and microphone to this backend:
+If your ESP32 Serial Monitor shows `error(-1): connection refused`, follow these steps:
 
-### 1. Ingest Data
-Send a `POST` request to `http://<YOUR_SERVER_IP>:8000/v1/ingest` with `device_id`, `temperature`, `moisture`, `light`, and an `audio` file (16kHz WAV).
+### 1. Verify Your IP Address
+Your laptop's IP address can change when you reconnect to a hotspot.
+- Current Laptop IP: **172.20.10.4**
+- Update your `src/main.cpp`:
+  `const char* serverUrl = "http://172.20.10.4:8000/v1/ingest";`
 
-### 2. Stream Response
-The `/v1/ingest` endpoint returns a JSON immediately with a `audio_url` (e.g., `/v1/audio/stream/123`). 
-- **Streaming**: The `ESP32-audioI2S` library handles the `audio_url` directly. It will stream and play the audio chunks in real-time.
-- **Immediate Playback**: The plant's "Hmm..." backchannel will play as soon as the stream starts, followed by the actual answer.
+### 2. Check Windows Firewall (Important!)
+Windows often blocks incoming connections on port 8000 for "Public" networks.
+1. Open **Windows Defender Firewall with Advanced Security**.
+2. Click **Inbound Rules** -> **New Rule**.
+3. Select **Port** -> **Next**.
+4. Select **TCP** and enter **8000** in "Specific local ports".
+5. Select **Allow the connection** -> **Next**.
+6. Ensure **Public** (and Private) are checked -> **Next**.
+7. Name it "Smart Plant Pot" and Finish.
 
-### 3. Parse Metadata
-Use `GET /v1/history?device_id=<ID>` after the audio finishes to retrieve the final `reply_text` and `mood` for your display/LCD face.
+### 3. Run a Health Check
+From your **phone** (connected to the same hotspot), try to visit:
+`http://172.20.10.4:8000/v1/health`
+- **If it works on your phone**: The server is fine, your ESP32 code likely has a typo in its `serverUrl`.
+- **If it fails on your phone**: Your Windows Firewall or Antivirus is still blocking the connection.
+
+### 4. Hardware Integration Guide
+(Previous guide follows...)
