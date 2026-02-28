@@ -4,100 +4,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Plant Pot Simulator</title>
+    <title>Pot Simulator | Smart Plant Pot</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
-    <div class="app-container">
-        <header>
-            <h1>Plant Pot Simulator</h1>
-            <p class="subtitle">Interact with your digital flora</p>
-        </header>
+    <div class="iphone-frame">
+        <!-- Physical Buttons -->
+        <div class="side-btn action-btn"></div>
+        <div class="side-btn vol-up"></div>
+        <div class="side-btn vol-down"></div>
+        <div class="side-btn power-btn"></div>
 
-        <main>
-            <div class="plant-card">
-                <div class="plant-avatar" id="plant-avatar">
-                    <div class="leaf-left"></div>
-                    <div class="leaf-right"></div>
-                    <div class="pot">
-                        <div class="face" id="plant-face">
-                            <div class="eyes">
-                                <div class="eye"></div>
-                                <div class="eye"></div>
+        <div class="screen-container">
+            <!-- Dynamic Island Overlay -->
+            <div class="dynamic-island" id="dynamic-island">
+                <div id="island-content"></div>
+            </div>
+
+            <!-- Status Bar -->
+            <div class="status-bar">
+                <div class="status-left">
+                    <span id="status-time">9:41</span>
+                </div>
+                <div class="status-right">
+                    <i data-lucide="signal" size="16"></i>
+                    <i data-lucide="wifi" size="16"></i>
+                    <i data-lucide="battery" class="battery-icon" size="16"></i>
+                </div>
+            </div>
+
+            <div class="app-header">
+                <div class="app-brand">EcoCradle</div>
+            </div>
+
+            <div class="app-content scrollable">
+                <div class="split-layout">
+                    <!-- Plant Side -->
+                    <div class="plant-column">
+                        <div class="plant-image-container" id="plant-avatar">
+                            <img src="basil.png" id="main-plant-img" alt="Plant Image">
+                        </div>
+                        <div class="plant-info">
+                            <div class="select-wrapper">
+                                <select id="plant-species-select" class="ios-plant-select">
+                                    <option value="basil">Lot A1: Basil</option>
+                                    <option value="lavender">Lot A2: Lavender</option>
+                                    <option value="cactus">Lot A3: Cactus</option>
+                                    <option value="aloe">Lot A4: Aloe Vera</option>
+                                    <option value="spider">Lot A5: Spider Plant</option>
+                                    <option value="peace">Lot A6: Peace Lily</option>
+                                </select>
+                                <i data-lucide="chevron-down" class="select-arrow"></i>
                             </div>
-                            <div class="mouth"></div>
+                            <p id="app-status">Healthy & Syncing</p>
+
+                            <div class="ios-pill-btn shadow compact-btn" id="record-btn" style="margin-top: 15px;">
+                                <span>🎙️ Simulate "Hey Plant"</span>
+                            </div>
+                            <div class="ios-pill-btn shadow compact-btn" id="low-moisture-btn" style="margin-top: 8px;">
+                                <span>💧 Low Moisture Alert</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats Side -->
+                    <div class="stats-column">
+                        <!-- Moisture -->
+                        <div class="sensor-card">
+                            <div class="card-header"><i data-lucide="droplet" class="moisture-icon"></i></div>
+                            <div class="progress-container">
+                                <svg class="progress-ring" width="60" height="60">
+                                    <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
+                                        fill="transparent" r="25" cx="30" cy="30" />
+                                    <circle id="moisture-ring" class="progress-ring-circle" stroke="#4caf50"
+                                        stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
+                                        cy="30" stroke-dasharray="157.08" stroke-dashoffset="32.99" />
+                                </svg>
+                                <div class="percentage-label" id="moisture-val">79%</div>
+                            </div>
+                            <div class="card-label">Moisture Level</div>
+                            <input type="range" id="moisture" min="0" max="100" value="79" class="inline-slider">
+                        </div>
+
+                        <!-- Light -->
+                        <div class="sensor-card">
+                            <div class="card-header"><i data-lucide="sun" class="light-icon"></i></div>
+                            <div class="progress-container">
+                                <svg class="progress-ring" width="60" height="60">
+                                    <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
+                                        fill="transparent" r="25" cx="30" cy="30" />
+                                    <circle id="light-ring" class="progress-ring-circle" stroke="#ff9500"
+                                        stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
+                                        cy="30" stroke-dasharray="157.08" stroke-dashoffset="28.27" />
+                                </svg>
+                                <div class="percentage-label" id="light-val">82%</div>
+                            </div>
+                            <div class="card-label">Light Intensity</div>
+                            <input type="range" id="light" min="0" max="100" value="82" class="inline-slider">
+                        </div>
+
+                        <!-- Temperature -->
+                        <div class="sensor-card">
+                            <div class="card-header"><i data-lucide="thermometer" class="temp-icon"></i></div>
+                            <div class="progress-container">
+                                <svg class="progress-ring" width="60" height="60">
+                                    <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
+                                        fill="transparent" r="25" cx="30" cy="30" />
+                                    <circle id="temp-ring" class="progress-ring-circle" stroke="#ffcc00"
+                                        stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
+                                        cy="30" stroke-dasharray="157.08" stroke-dashoffset="32.99" />
+                                </svg>
+                                <div class="percentage-label" id="actual-temp-val">79%</div>
+                            </div>
+                            <div class="card-label">Temperature</div>
+                            <input type="range" id="temperature" min="0" max="50" value="22" class="inline-slider">
                         </div>
                     </div>
                 </div>
 
-                <div class="status-badge" id="app-status">Ready</div>
-            </div>
+                <!-- Simulation Controls (Simplified & iOS Styled) -->
+                <div class="interaction-area">
+                    <!-- Chat Peek -->
+                    <div id="chat-container"
+                        style="margin-top: 20px; padding: 15px; background: #fff; border-radius: 20px; border: 1px solid var(--ios-border); max-height: 200px; overflow-y: auto;">
+                        <div class="msg-plant" style="font-style: italic; color: var(--ios-text-gray);">
+                            "Welcome back! Select a plant to begin."
+                        </div>
+                    </div>
 
-            <div class="controls">
-                <button id="record-btn" class="btn primary">
-                    <span class="icon">🎙️</span>
-                    <span class="label">Simulate "Hey Plant"</span>
-                </button>
-                <button id="low-moisture-btn" class="btn warning">
-                    <span class="icon">💧</span>
-                    <span class="label">Low Moisture</span>
-                </button>
-
-                <div class="text-input-area">
-                    <input type="text" id="text-query" placeholder="Ask your plant something...">
-                    <button id="send-text-btn" class="btn secondary">Send</button>
-                </div>
-                <div class="sensor-inputs">
-                    <div class="input-group">
-                        <label>Plant Species</label>
-                        <select id="plant-species">
-                            <option value="Basil">Basil (Default)</option>
-                            <option value="Lavender">Lavender</option>
-                            <option value="Cactus">Cactus</option>
-                            <option value="Aloe Vera">Aloe Vera</option>
-                            <option value="Spider Plant">Spider Plant</option>
-                            <option value="Peace Lily">Peace Lily</option>
-                            <option value="Succulent">Succulent</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label>Moisture</label>
-                        <input type="range" id="moisture" min="0" max="100" value="35">
-                        <span id="moisture-val">35%</span>
-                    </div>
-                    <div class="input-group">
-                        <label>Temperature (°C)</label>
-                        <input type="range" id="temperature" min="0" max="50" value="22">
-                        <span id="temperature-val">22°C</span>
-                    </div>
-                    <div class="input-group">
-                        <label>Light Level (%)</label>
-                        <input type="range" id="light" min="0" max="100" value="60">
-                        <span id="light-val">60%</span>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <input type="text" id="text-query" placeholder="Ask your plant..."
+                            style="flex: 1; padding: 12px 20px; border-radius: 25px; border: 1px solid var(--ios-border); outline: none;">
+                        <button id="send-text-btn"
+                            style="background: var(--ios-green); color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: 600;">Ask</button>
                     </div>
                 </div>
             </div>
 
-            <section class="transcript-section">
-                <h3>Conversation</h3>
-                <div class="chat-container" id="chat-container">
-                    <div class="message plant-message">
-                        "Welcome! I'm your digital {species}. Talk to me!"
-                    </div>
-                </div>
-            </section>
-        </main>
+            <!-- Bottom Nav -->
+            <nav class="bottom-nav">
+                <a href="#" class="nav-item active">
+                    <i data-lucide="home"></i>
+                    <span>Home</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i data-lucide="users"></i>
+                    <span>Community</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i data-lucide="leaf"></i>
+                    <span>Plants</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i data-lucide="settings"></i>
+                    <span>Settings</span>
+                </a>
+            </nav>
 
-        <footer>
-            <div class="debug-info">
-                <span>Device ID: pot_simulator_001</span>
-                <span>Mode: I2S Simulation (High-Fidelity 32kHz)</span>
-            </div>
-        </footer>
+            <div class="home-bar"></div>
+        </div>
     </div>
+
     <script src="app.js?v=9999"></script>
+    <script>
+        lucide.createIcons();
+    </script>
 </body>
 
 </html>
