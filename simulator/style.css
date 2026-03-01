@@ -124,7 +124,7 @@ body {
 }
 
 .battery-icon {
-    transform: rotate(90deg);
+    transform: rotate(0deg);
 }
 
 .app-header {
@@ -469,7 +469,7 @@ body {
 
 /* Utilities */
 .hidden {
-    display: none;
+    display: none !important;
 }
 
 .scrollable {
@@ -479,4 +479,411 @@ body {
 
 .scrollable::-webkit-scrollbar {
     display: none;
+}
+
+/* Page Management */
+.page-content {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+}
+
+.page-content.active {
+    display: flex;
+}
+
+/* Community Page Styling */
+.community-header {
+    padding: 0 20px 20px;
+}
+
+.community-header h1 {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 20px;
+    letter-spacing: -0.5px;
+}
+
+.community-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: #f2f2f7;
+    border-radius: 12px;
+    padding: 10px 15px;
+}
+
+.community-search input {
+    border: none;
+    background: transparent;
+    margin-left: 10px;
+    width: 100%;
+    outline: none;
+    font-size: 16px;
+}
+
+.garden-container {
+    padding: 20px;
+}
+
+.garden-image-wrapper {
+    position: relative;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: var(--shadow-light);
+}
+
+.garden-image {
+    width: 100%;
+    display: block;
+}
+
+.plot-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.garden-plot {
+    position: absolute;
+    width: 45px;
+    height: 70px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.garden-plot:hover .plot-dot {
+    transform: scale(1.4);
+    box-shadow: 0 0 15px rgba(52, 199, 89, 0.4);
+}
+
+.garden-plot:active {
+    transform: scale(0.9);
+}
+
+.plot-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1.5px solid #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    transition: transform 0.2s;
+    pointer-events: none;
+    position: relative;
+    /* Default centered positioning */
+}
+
+.plot-dot.green {
+    background: #34c759;
+}
+
+.plot-dot.red {
+    background: #ff3b30;
+}
+
+/* Zone A Plots (Top Left) */
+.garden-plot.a1 {
+    top: 28%;
+    left: 14%;
+}
+
+.garden-plot.a2 {
+    top: 28%;
+    left: 22%;
+}
+
+.garden-plot.a3 {
+    top: 28%;
+    left: 30%;
+}
+
+.garden-plot.a4 {
+    top: 28%;
+    left: 38%;
+}
+
+.garden-plot.a5 {
+    top: 44%;
+    left: 14%;
+}
+
+.garden-plot.a6 {
+    top: 44%;
+    left: 22%;
+}
+
+.garden-plot.a7 {
+    top: 44%;
+    left: 30%;
+}
+
+.garden-plot.a8 {
+    top: 44%;
+    left: 38%;
+}
+
+.garden-plot.a9 {
+    top: 61%;
+    left: 10.5%;
+    width: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.garden-plot.a10 {
+    top: 61%;
+    left: 21%;
+    width: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.garden-plot.a11 {
+    top: 61%;
+    left: 30%;
+    width: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Zone B Plots (Right Side) */
+.garden-plot.b1 {
+    top: 30%;
+    left: 54%;
+    width: 30px;
+}
+
+.garden-plot.b2 {
+    top: 30%;
+    left: 61%;
+    width: 30px;
+}
+
+.garden-plot.b3 {
+    top: 30%;
+    left: 68%;
+    width: 30px;
+}
+
+.garden-plot.b4 {
+    top: 30%;
+    left: 74.5%;
+    width: 30px;
+}
+
+.garden-plot.b5 {
+    top: 30%;
+    left: 81.5%;
+    width: 30px;
+}
+
+.garden-plot.b6 {
+    top: 55%;
+    left: 53%;
+    width: 40px;
+    height: 90px;
+}
+
+.garden-plot.b7 {
+    top: 55%;
+    left: 59.5%;
+    width: 40px;
+    height: 90px;
+}
+
+.garden-plot.b8 {
+    top: 55%;
+    left: 66.5%;
+    width: 40px;
+    height: 90px;
+}
+
+.garden-plot.b9 {
+    top: 55%;
+    left: 73%;
+    width: 40px;
+    height: 90px;
+}
+
+.garden-plot.b10 {
+    top: 55%;
+    left: 80%;
+    width: 40px;
+    height: 90px;
+}
+
+
+/* Modal Overlay */
+.modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(5px);
+}
+
+.modal-content {
+    background: #fff;
+    width: 80%;
+    border-radius: 24px;
+    padding: 30px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    animation: modalIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+@keyframes modalIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.modal-content h2 {
+    margin-top: 0;
+    font-size: 22px;
+    margin-bottom: 25px;
+}
+
+.modal-content p {
+    color: #666;
+    font-size: 15px;
+    margin: 15px 0;
+}
+
+.modal-content .ios-pill-btn {
+    font-size: 14px;
+    margin-top: 30px;
+    height: 45px;
+    width: 100%;
+}
+
+.placeholder-msg {
+    padding: 40px;
+    text-align: center;
+    color: #8e8e93;
+    font-style: italic;
+}
+/* Forum Tab Styling */
+.forum-container {
+    padding: 0 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.forum-post {
+    background: #fff;
+    border-radius: 20px;
+    padding: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+    border: 1px solid var(--ios-border);
+}
+
+.post-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.post-tag {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--ios-green);
+    background: #eaffea;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.post-time {
+    font-size: 11px;
+    color: #8e8e93;
+}
+
+.forum-post h3 {
+    margin: 0 0 6px;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.forum-post p {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: #3a3a3c;
+    line-height: 1.4;
+}
+
+.post-footer {
+    display: flex;
+    gap: 15px;
+    font-size: 12px;
+    color: #8e8e93;
+    font-weight: 600;
+}
+
+/* Settings Tab Styling */
+.settings-container {
+    padding: 0 20px;
+}
+
+.settings-group {
+    background: #fff;
+    border-radius: 12px;
+    margin-bottom: 25px;
+    border: 1px solid var(--ios-border);
+    overflow: hidden;
+}
+
+.settings-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--ios-border);
+    cursor: pointer;
+}
+
+.settings-item:last-child {
+    border-bottom: none;
+}
+
+.settings-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 16px;
+}
+
+.settings-label i {
+    color: #007aff;
+}
+
+.settings-arrow {
+    color: #c7c7cc;
+}
+
+.settings-value {
+    color: #8e8e93;
 }

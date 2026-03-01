@@ -279,3 +279,41 @@ function encodeWAV(samples, sampleRate) {
 lucide.createIcons();
 setInterval(updateStatusBar, 1000);
 updateStatusBar();
+
+// --- Tab Switching Logic ---
+const navItems = document.querySelectorAll('.nav-item');
+const pages = document.querySelectorAll('.page-content');
+
+navItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const pageId = item.getAttribute('data-page');
+
+        // Update Nav
+        navItems.forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+
+        // Update Pages
+        pages.forEach(p => p.classList.remove('active'));
+        document.getElementById(`${pageId}-page`).classList.add('active');
+
+        // Re-create icons for new content if needed
+        lucide.createIcons();
+    });
+});
+
+// --- Community Plot Modal ---
+function showPlotInfo(title, name, date, tips) {
+    document.getElementById('modal-title').innerText = title;
+    document.getElementById('modal-name').innerText = name;
+    document.getElementById('modal-date').innerText = date;
+    document.getElementById('modal-tips').innerText = tips;
+    document.getElementById('plot-modal').classList.remove('hidden');
+}
+
+function hidePlotInfo() {
+    document.getElementById('plot-modal').classList.add('hidden');
+}
+
+window.showPlotInfo = showPlotInfo;
+window.hidePlotInfo = hidePlotInfo;

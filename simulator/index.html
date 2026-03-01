@@ -40,124 +40,323 @@
             </div>
 
             <div class="app-content scrollable">
-                <div class="split-layout">
-                    <!-- Plant Side -->
-                    <div class="plant-column">
-                        <div class="plant-image-container" id="plant-avatar">
-                            <img src="basil.png" id="main-plant-img" alt="Plant Image">
-                        </div>
-                        <div class="plant-info">
-                            <div class="select-wrapper">
-                                <select id="plant-species-select" class="ios-plant-select">
-                                    <option value="basil">Lot A1: Basil</option>
-                                    <option value="lavender">Lot A2: Lavender</option>
-                                    <option value="cactus">Lot A3: Cactus</option>
-                                    <option value="aloe">Lot A4: Aloe Vera</option>
-                                    <option value="spider">Lot A5: Spider Plant</option>
-                                    <option value="peace">Lot A6: Peace Lily</option>
-                                </select>
-                                <i data-lucide="chevron-down" class="select-arrow"></i>
+                <div id="home-page" class="page-content active">
+                    <div class="split-layout">
+                        <!-- Plant Side -->
+                        <div class="plant-column">
+                            <div class="plant-image-container" id="plant-avatar">
+                                <img src="basil.png" id="main-plant-img" alt="Plant Image">
                             </div>
-                            <p id="app-status">Healthy & Syncing</p>
+                            <div class="plant-info">
+                                <div class="select-wrapper">
+                                    <select id="plant-species-select" class="ios-plant-select">
+                                        <option value="basil">Lot A1: Basil</option>
+                                        <option value="lavender">Lot A2: Lavender</option>
+                                        <option value="cactus">Lot A3: Cactus</option>
+                                        <option value="aloe">Lot A4: Aloe Vera</option>
+                                        <option value="spider">Lot A5: Spider Plant</option>
+                                        <option value="peace">Lot A6: Peace Lily</option>
+                                    </select>
+                                    <i data-lucide="chevron-down" class="select-arrow"></i>
+                                </div>
+                                <p id="app-status">Healthy & Syncing</p>
 
-                            <div class="ios-pill-btn shadow compact-btn" id="record-btn" style="margin-top: 15px;">
-                                <span>🎙️ Simulate "Hey Plant"</span>
+                                <div class="ios-pill-btn shadow compact-btn" id="record-btn" style="margin-top: 15px;">
+                                    <span>🎙️ Simulate "Hey Plant"</span>
+                                </div>
+                                <div class="ios-pill-btn shadow compact-btn" id="low-moisture-btn"
+                                    style="margin-top: 8px;">
+                                    <span>💧 Low Moisture Alert</span>
+                                </div>
                             </div>
-                            <div class="ios-pill-btn shadow compact-btn" id="low-moisture-btn" style="margin-top: 8px;">
-                                <span>💧 Low Moisture Alert</span>
+                        </div>
+
+                        <!-- Stats Side -->
+                        <div class="stats-column">
+                            <!-- Moisture -->
+                            <div class="sensor-card">
+                                <div class="card-header"><i data-lucide="droplet" class="moisture-icon"></i></div>
+                                <div class="progress-container">
+                                    <svg class="progress-ring" width="60" height="60">
+                                        <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
+                                            fill="transparent" r="25" cx="30" cy="30" />
+                                        <circle id="moisture-ring" class="progress-ring-circle" stroke="#4caf50"
+                                            stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
+                                            cy="30" stroke-dasharray="157.08" stroke-dashoffset="32.99" />
+                                    </svg>
+                                    <div class="percentage-label" id="moisture-val">79%</div>
+                                </div>
+                                <div class="card-label">Moisture Level</div>
+                                <input type="range" id="moisture" min="0" max="100" value="79" class="inline-slider">
+                            </div>
+
+                            <!-- Light -->
+                            <div class="sensor-card">
+                                <div class="card-header"><i data-lucide="sun" class="light-icon"></i></div>
+                                <div class="progress-container">
+                                    <svg class="progress-ring" width="60" height="60">
+                                        <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
+                                            fill="transparent" r="25" cx="30" cy="30" />
+                                        <circle id="light-ring" class="progress-ring-circle" stroke="#ff9500"
+                                            stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
+                                            cy="30" stroke-dasharray="157.08" stroke-dashoffset="28.27" />
+                                    </svg>
+                                    <div class="percentage-label" id="light-val">82%</div>
+                                </div>
+                                <div class="card-label">Light Intensity</div>
+                                <input type="range" id="light" min="0" max="100" value="82" class="inline-slider">
+                            </div>
+
+                            <!-- Temperature -->
+                            <div class="sensor-card">
+                                <div class="card-header"><i data-lucide="thermometer" class="temp-icon"></i></div>
+                                <div class="progress-container">
+                                    <svg class="progress-ring" width="60" height="60">
+                                        <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
+                                            fill="transparent" r="25" cx="30" cy="30" />
+                                        <circle id="temp-ring" class="progress-ring-circle" stroke="#ffcc00"
+                                            stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
+                                            cy="30" stroke-dasharray="157.08" stroke-dashoffset="32.99" />
+                                    </svg>
+                                    <div class="percentage-label" id="actual-temp-val">79%</div>
+                                </div>
+                                <div class="card-label">Temperature</div>
+                                <input type="range" id="temperature" min="0" max="50" value="22" class="inline-slider">
                             </div>
                         </div>
                     </div>
 
-                    <!-- Stats Side -->
-                    <div class="stats-column">
-                        <!-- Moisture -->
-                        <div class="sensor-card">
-                            <div class="card-header"><i data-lucide="droplet" class="moisture-icon"></i></div>
-                            <div class="progress-container">
-                                <svg class="progress-ring" width="60" height="60">
-                                    <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
-                                        fill="transparent" r="25" cx="30" cy="30" />
-                                    <circle id="moisture-ring" class="progress-ring-circle" stroke="#4caf50"
-                                        stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
-                                        cy="30" stroke-dasharray="157.08" stroke-dashoffset="32.99" />
-                                </svg>
-                                <div class="percentage-label" id="moisture-val">79%</div>
+                    <!-- Simulation Controls (Simplified & iOS Styled) -->
+                    <div class="interaction-area">
+                        <!-- Chat Peek -->
+                        <div id="chat-container"
+                            style="margin-top: 20px; padding: 15px; background: #fff; border-radius: 20px; border: 1px solid var(--ios-border); max-height: 200px; overflow-y: auto;">
+                            <div class="msg-plant" style="font-style: italic; color: var(--ios-text-gray);">
+                                "Welcome back! Select a plant to begin."
                             </div>
-                            <div class="card-label">Moisture Level</div>
-                            <input type="range" id="moisture" min="0" max="100" value="79" class="inline-slider">
                         </div>
 
-                        <!-- Light -->
-                        <div class="sensor-card">
-                            <div class="card-header"><i data-lucide="sun" class="light-icon"></i></div>
-                            <div class="progress-container">
-                                <svg class="progress-ring" width="60" height="60">
-                                    <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
-                                        fill="transparent" r="25" cx="30" cy="30" />
-                                    <circle id="light-ring" class="progress-ring-circle" stroke="#ff9500"
-                                        stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
-                                        cy="30" stroke-dasharray="157.08" stroke-dashoffset="28.27" />
-                                </svg>
-                                <div class="percentage-label" id="light-val">82%</div>
-                            </div>
-                            <div class="card-label">Light Intensity</div>
-                            <input type="range" id="light" min="0" max="100" value="82" class="inline-slider">
-                        </div>
-
-                        <!-- Temperature -->
-                        <div class="sensor-card">
-                            <div class="card-header"><i data-lucide="thermometer" class="temp-icon"></i></div>
-                            <div class="progress-container">
-                                <svg class="progress-ring" width="60" height="60">
-                                    <circle class="progress-ring-circle-bg" stroke="#f0f0f0" stroke-width="5"
-                                        fill="transparent" r="25" cx="30" cy="30" />
-                                    <circle id="temp-ring" class="progress-ring-circle" stroke="#ffcc00"
-                                        stroke-width="5" stroke-linecap="round" fill="transparent" r="25" cx="30"
-                                        cy="30" stroke-dasharray="157.08" stroke-dashoffset="32.99" />
-                                </svg>
-                                <div class="percentage-label" id="actual-temp-val">79%</div>
-                            </div>
-                            <div class="card-label">Temperature</div>
-                            <input type="range" id="temperature" min="0" max="50" value="22" class="inline-slider">
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <input type="text" id="text-query" placeholder="Ask your plant..."
+                                style="flex: 1; padding: 12px 20px; border-radius: 25px; border: 1px solid var(--ios-border); outline: none;">
+                            <button id="send-text-btn"
+                                style="background: var(--ios-green); color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: 600;">Ask</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Simulation Controls (Simplified & iOS Styled) -->
-                <div class="interaction-area">
-                    <!-- Chat Peek -->
-                    <div id="chat-container"
-                        style="margin-top: 20px; padding: 15px; background: #fff; border-radius: 20px; border: 1px solid var(--ios-border); max-height: 200px; overflow-y: auto;">
-                        <div class="msg-plant" style="font-style: italic; color: var(--ios-text-gray);">
-                            "Welcome back! Select a plant to begin."
+                <!-- NEW: Community Page -->
+                <div id="community-page" class="page-content">
+                    <div class="community-header">
+                        <h1>Community Garden Overview</h1>
+                        <div class="community-search">
+                            <i data-lucide="search"></i>
+                            <input type="text" placeholder="Find a community garden">
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <input type="text" id="text-query" placeholder="Ask your plant..."
-                            style="flex: 1; padding: 12px 20px; border-radius: 25px; border: 1px solid var(--ios-border); outline: none;">
-                        <button id="send-text-btn"
-                            style="background: var(--ios-green); color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: 600;">Ask</button>
+                    <div class="garden-container">
+                        <div class="garden-image-wrapper">
+                            <img src="community_garden.png" alt="Community Garden" class="garden-image">
+                            <!-- Plots overlay: 21 Plots Total -->
+                            <div class="plot-overlay">
+                                <!-- Zone A: A1 - A11 -->
+                                <div class="garden-plot a1"
+                                    onclick="showPlotInfo('Lot A1', 'Basil', 'Jan 10', 'Needs watering.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot a2"
+                                    onclick="showPlotInfo('Lot A2: Available', '-', '-', 'Ready for planting.')">
+                                    <span class="plot-dot red"></span>
+                                </div>
+                                <div class="garden-plot a3"
+                                    onclick="showPlotInfo('Lot A3', 'Lavender', 'Jan 15', 'Needs more sunlight.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot a4"
+                                    onclick="showPlotInfo('Lot A4', 'Cactus', 'Jan 18', 'Healthy growth.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot a5"
+                                    onclick="showPlotInfo('Lot A5', 'Aloe Vera', 'Jan 20', 'Needs watering.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot a6"
+                                    onclick="showPlotInfo('Lot A6: Available', '-', '-', 'Ready for planting.')">
+                                    <span class="plot-dot red"></span>
+                                </div>
+                                <div class="garden-plot a7"
+                                    onclick="showPlotInfo('Lot A7', 'Spider Plant', 'Jan 25', 'Needs pruning.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot a8"
+                                    onclick="showPlotInfo('Lot A8', 'Peace Lily', 'Jan 28', 'Needs more sunlight.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot a9"
+                                    onclick="showPlotInfo('Lot A9', 'Rosemary', 'Feb 01', 'Healthy growth.')"><span
+                                        class="plot-dot green"></span></div>
+                                <div class="garden-plot a10"
+                                    onclick="showPlotInfo('Lot A10', 'Mint', 'Feb 05', 'Needs watering.')"><span
+                                        class="plot-dot green"></span></div>
+                                <div class="garden-plot a11"
+                                    onclick="showPlotInfo('Lot A11', 'Thyme', 'Feb 08', 'Needs more sunlight.')"><span
+                                        class="plot-dot green"></span></div>
+
+                                <!-- Zone B: B1 - B10 -->
+                                <div class="garden-plot b1"
+                                    onclick="showPlotInfo('Lot B1', 'Basil', 'Jan 15', 'Healthy growth.')"><span
+                                        class="plot-dot green"></span></div>
+                                <div class="garden-plot b2"
+                                    onclick="showPlotInfo('Lot B2', 'Lavender', 'Jan 18', 'Needs watering.')"><span
+                                        class="plot-dot green"></span></div>
+                                <div class="garden-plot b3"
+                                    onclick="showPlotInfo('Lot B3', 'Cactus', 'Jan 20', 'Needs more sunlight.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot b4"
+                                    onclick="showPlotInfo('Lot B4', 'Aloe', 'Jan 22', 'Healthy growth.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot b5"
+                                    onclick="showPlotInfo('Lot B5: Available', '-', '-', 'Ready for planting.')">
+                                    <span class="plot-dot red"></span>
+                                </div>
+                                <div class="garden-plot b6"
+                                    onclick="showPlotInfo('Lot B6', 'Spider Plant', 'Jan 28', 'Needs watering.')"><span
+                                        class="plot-dot green"></span></div>
+                                <div class="garden-plot b7"
+                                    onclick="showPlotInfo('Lot B7', 'Peace Lily', 'Feb 02', 'Needs more sunlight.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot b8"
+                                    onclick="showPlotInfo('Lot B8', 'Mint', 'Feb 05', 'Healthy growth.')"><span
+                                        class="plot-dot green"></span></div>
+                                <div class="garden-plot b9"
+                                    onclick="showPlotInfo('Lot B9', 'Rosemary', 'Feb 10', 'Needs pruning.')">
+                                    <span class="plot-dot green"></span>
+                                </div>
+                                <div class="garden-plot b10"
+                                    onclick="showPlotInfo('Lot B10', 'Thyme', 'Feb 15', 'Needs watering.')"><span
+                                        class="plot-dot green"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Forum Page -->
+                <div id="forum-page" class="page-content">
+                    <div class="community-header">
+                        <h1>EcoCradle Forum</h1>
+                    </div>
+                    <div class="forum-container">
+                        <div class="forum-post">
+                            <div class="post-header">
+                                <span class="post-tag">Help</span>
+                                <span class="post-time">2h ago</span>
+                            </div>
+                            <h3>Tips for organic basil in Lot A1?</h3>
+                            <p>My basil is starting to flower, should I prune it now or wait?</p>
+                            <div class="post-footer">
+                                <span>💬 12 comments</span>
+                                <span>👍 24</span>
+                            </div>
+                        </div>
+                        <div class="forum-post">
+                            <div class="post-header">
+                                <span class="post-tag">Success</span>
+                                <span class="post-time">5h ago</span>
+                            </div>
+                            <h3>First lavender harvest!</h3>
+                            <p>Just harvested a small batch from Lot B2. The scent is amazing!</p>
+                            <div class="post-footer">
+                                <span>💬 8 comments</span>
+                                <span>👍 45</span>
+                            </div>
+                        </div>
+                        <div class="forum-post">
+                            <div class="post-header">
+                                <span class="post-tag">Event</span>
+                                <span class="post-time">1d ago</span>
+                            </div>
+                            <h3>Community Mulching Day - This Sat!</h3>
+                            <p>Join us at 9am for our monthly garden maintenance and mulching session.</p>
+                            <div class="post-footer">
+                                <span>💬 5 comments</span>
+                                <span>👍 18</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Settings Page -->
+                <div id="settings-page" class="page-content">
+                    <div class="community-header">
+                        <h1>Settings</h1>
+                    </div>
+                    <div class="settings-container">
+                        <div class="settings-group">
+                            <div class="settings-item">
+                                <div class="settings-label">
+                                    <i data-lucide="user" size="18"></i>
+                                    <span>Account</span>
+                                </div>
+                                <i data-lucide="chevron-right" class="settings-arrow"></i>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">
+                                    <i data-lucide="sprout" size="18"></i>
+                                    <span>Your plants</span>
+                                </div>
+                                <i data-lucide="chevron-right" class="settings-arrow"></i>
+                            </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <div class="settings-item">
+                                <div class="settings-label">
+                                    <i data-lucide="bell" size="18"></i>
+                                    <span>Notifications</span>
+                                </div>
+                                <i data-lucide="chevron-right" class="settings-arrow"></i>
+                            </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <div class="settings-item">
+                                <div class="settings-label" style="color: #ff3b30;">
+                                    <i data-lucide="log-out" size="18"></i>
+                                    <span>Sign Out</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Bottom Nav -->
+            <!-- Plot Info Modal -->
+            <div id="plot-modal" class="modal-overlay hidden" onclick="hidePlotInfo()">
+                <div class="modal-content" onclick="event.stopPropagation()">
+                    <h2 id="modal-title">Plot Title</h2>
+                    <p><strong>Name:</strong> <span id="modal-name"></span></p>
+                    <p><strong>Started:</strong> <span id="modal-date"></span></p>
+                    <p><strong>Care Tips:</strong> <span id="modal-tips"></span></p>
+                    <button class="ios-pill-btn" onclick="hidePlotInfo()">Close</button>
+                </div>
+            </div>
             <nav class="bottom-nav">
-                <a href="#" class="nav-item active">
+                <a href="#" class="nav-item active" data-page="home">
                     <i data-lucide="home"></i>
                     <span>Home</span>
                 </a>
-                <a href="#" class="nav-item">
+                <a href="#" class="nav-item" data-page="community">
                     <i data-lucide="users"></i>
                     <span>Community</span>
                 </a>
-                <a href="#" class="nav-item">
-                    <i data-lucide="leaf"></i>
-                    <span>Plants</span>
+                <a href="#" class="nav-item" data-page="forum">
+                    <i data-lucide="message-square"></i>
+                    <span>Forum</span>
                 </a>
-                <a href="#" class="nav-item">
+                <a href="#" class="nav-item" data-page="settings">
                     <i data-lucide="settings"></i>
                     <span>Settings</span>
                 </a>
