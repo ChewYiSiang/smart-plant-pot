@@ -191,7 +191,14 @@ document.getElementById('low-moisture-btn').onclick = async () => {
     const alertSound = new Audio('alert.wav');
     alertSound.play().catch(e => console.log("Audio play failed:", e));
 
-    await fetch(`/v1/ingest?device_id=pot_simulator_001&event=low_moisture_alert`, { method: 'POST' });
+    const params = new URLSearchParams({
+        device_id: 'pot_simulator_001',
+        temperature: parseFloat(tempSlider.value),
+        moisture: parseFloat(moistureSlider.value),
+        light: parseFloat(lightSlider.value),
+        event: 'low_moisture_alert'
+    });
+    await fetch(`/v1/ingest?${params}`, { method: 'POST' });
     setTimeout(() => setIsland(""), 3000);
 };
 

@@ -219,41 +219,39 @@ async def ingest_data(
 
         # --- REMOTE TRIGGER: Propagation from Simulator to Physical Pot ---
         if force_notification and getattr(device, "is_simulator", False):
-            # Find any physical device that has sent data in the last 10 minutes
-            ten_mins_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
-            statement = (
-                select(Device)
-                .join(SensorReading)
-                .where(
-                    Device.is_simulator == False,
-                    SensorReading.timestamp >= ten_mins_ago
-                )
-                .order_by(SensorReading.timestamp.desc())
-                .limit(1)
-            )
-            # Find the physical device the user is actually using
-            physical_device = session.get(Device, "s3_devkitc_plant_pot")
+            # Target the specific known hardware ID first
+            hw_id = "s3_devkitc_plant_pot"
+            hw_device = session.get(Device, hw_id)
+            if not hw_device:
+                # Pre-register if missing (will be populated on first real HW poll)
+                hw_device = Device(id=hw_id, name="Physical Pot", species="Unknown", is_simulator=False)
+                session.add(hw_device)
             
-            # If not found, fall back to any active hardware device
-            if not physical_device:
-                physical_device = session.exec(statement).first()
+            # Find ALL registered hardware devices (including the one we just ensured)
+            physical_devices = session.exec(select(Device).where(Device.is_simulator == False)).all()
             
-            # Last resort: find ANY physical device
-            if not physical_device:
-                physical_device = session.exec(select(Device).where(Device.is_simulator == False).limit(1)).first()
-
-            if physical_device:
-                # Propagation: Add reading directly for the physical device
-                session.add(SensorReading(
-                    device_id=physical_device.id,
-                    temperature=temperature,
-                    moisture=10.0,
-                    light=light,
-                    event="remote_simulator_alert"
-                ))
-                print(f"✅ [TRACE] Alert propagated to {physical_device.id}")
-            else:
+            if not physical_devices:
                 print(f"🔍 [TRACE] No physical devices found to propagate alert to.")
+            else:
+                for pd in physical_devices:
+                    # Propagation: Add reading directly for the physical device
+                    # We use moisture 5.0 to be well below the 20.0 threshold
+                    new_reading = SensorReading(
+                        device_id=pd.id,
+                        temperature=temperature,
+                        moisture=5.0, # Trigger the threshold
+                        light=light,
+                        event="remote_simulator_alert"
+                    )
+                    session.add(new_reading)
+                    print(f"✅ [TRACE] Alert propagated to physical device: {pd.id}")
+                    
+                    # Log for debugging
+                    try:
+                        with open("propagation.log", "a") as f:
+                            f.write(f"[{datetime.now()}] Propagated alert to {pd.id} (Moisture: 5.0%)\n")
+                    except:
+                        pass
 
         session.commit()
         print(f"💾 [TRACE] Session Committed successfully.")
@@ -418,14 +416,14 @@ async def poll_for_audio(device_id: str, session: Session = Depends(get_session)
         session.commit()
 
     # 2. Check for Low Moisture Notification
-    one_hour_ago = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
+    # [REMOVED TIME CONSTRAINT] to ensure reliability regardless of clock drift.
+    # The unique ID check below handles the duplicate suppression.
 
-    # Query only for the most recent alert event within the window
+    # Query only for the most recent alert event
     statement = (
         select(SensorReading)
         .where(
             SensorReading.device_id == device_id,
-            SensorReading.timestamp >= one_hour_ago,
             or_(
                 SensorReading.moisture < 20.0,
                 SensorReading.event.in_(["low_moisture_alert", "remote_simulator_alert"])
